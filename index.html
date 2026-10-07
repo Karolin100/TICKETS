@@ -1893,14 +1893,23 @@ async function moveTicket(id, newStatus) {
     const ticket = tickets.find(t => t.id === id);
     if (!ticket || ticket.status === newStatus) return;
 
+    // =========================
+    // COMPLETAR
+    // =========================
     if (newStatus === "completada") {
         ticketBeingCompleted = ticket.id;
+
         document.getElementById("completion-ticket-number").value = "";
+
         document.getElementById("complete-modal").classList.remove("hidden");
         document.getElementById("complete-modal").classList.add("flex");
+
         return;
     }
 
+    // =========================
+    // CANCELAR
+    // =========================
     if (newStatus === "cancelada") {
         openCancelModal(ticket.id);
         return;
@@ -1910,11 +1919,16 @@ async function moveTicket(id, newStatus) {
     const previousStatus = ticket.status;
     const movementAt = new Date().toISOString();
 
+    // Cambiar estado local
     ticket.status = newStatus;
     ticket.movedBy = currentUser;
     ticket.movedAt = movementAt;
 
-    if (!Array.isArray(ticket.movementHistory)) ticket.movementHistory = [];
+    // Historial
+    if (!Array.isArray(ticket.movementHistory)) {
+        ticket.movementHistory = [];
+    }
+
     ticket.movementHistory.push({
         fromStatus: previousStatus,
         toStatus: newStatus,
@@ -1923,13 +1937,72 @@ async function moveTicket(id, newStatus) {
     });
 
     try {
-        await persistTicket(ticket);
+
+        // ==========================================
+        // ACTUALIZAR SOLICITUD EXISTENTE EN SUPABASE
+        // ==========================================
+
+        const estadoSupabase =
+            newStatus === "proceso"
+                ? "En proceso"
+                : newStatus === "pendiente"
+                    ? "Pendiente"
+                    : newStatus;
+
+        const datosActualizados = {
+            requester: ticket.requester || "",
+            contacto: ticket.contacto || "",
+            modelo: ticket.modelo || "",
+            serial: ticket.serial || "",
+            requerimiento: ticket.requerimiento || "",
+            sucursal: ticket.sucursal || "",
+            usuarios: ticket.usuarios || "",
+            conectividad: ticket.conectividad || "",
+            escaneo: ticket.escaneo || "",
+            diagnostico: ticket.diagnostico || "",
+            evidenceName: ticket.evidenceName || "",
+            evidenceData: ticket.evidenceData || "",
+            movedBy: ticket.movedBy || "",
+            movedAt: ticket.movedAt || "",
+            movementHistory: ticket.movementHistory || []
+        };
+
+        const { data, error } = await supabaseClient
+            .from("solicitudes")
+            .update({
+                estado: estadoSupabase,
+                updated_at: movementAt,
+                datos: datosActualizados
+            })
+            .eq("numero_solicitud", String(ticket.id))
+            .select()
+            .single();
+
+        if (error) {
+            throw error;
+        }
+
+        console.log("✅ Estado actualizado en Supabase:", data);
+
+        // Guardar también la copia local
+        saveTickets();
+
         notifyChange();
+
     } catch (err) {
-        console.error("Error guardando cambio de estado:", err);
+
+        console.error("❌ Error guardando cambio de estado:", err);
+
+        // Restaurar estado anterior si falla Supabase
         Object.assign(ticket, backup);
-        showCustomAlert("No se pudo guardar el cambio de estado. Intenta nuevamente.", "Error al Guardar", "error");
+
+        showCustomAlert(
+            "No se pudo guardar el cambio de estado. Intenta nuevamente.",
+            "Error al Guardar",
+            "error"
+        );
     }
+
     renderKanban();
 }
 
