@@ -1123,6 +1123,7 @@ async function loadAllTickets() {
 }
 
 async function persistTicket(ticket) {
+    console.log("🔥 PERSIST TICKET SE ESTÁ EJECUTANDO", ticket);
 
     const { data, error } = await supabaseClient
         .from("solicitudes")
