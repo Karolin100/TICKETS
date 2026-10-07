@@ -1123,15 +1123,51 @@ async function loadAllTickets() {
 }
 
 async function persistTicket(ticket) {
-    if (dbRef) {
-        await dbPut(ticket);
-        return;
+
+    const { data, error } = await supabaseClient
+        .from("solicitudes")
+        .insert({
+            numero_solicitud: String(ticket.id),
+            tipo_solicitud: ticket.tipo || "Sin especificar",
+            cliente: ticket.cliente || "",
+            solicitado_por: ticket.reporta || ticket.requester || "",
+            fecha_solicitud: ticket.createdAt || new Date().toISOString(),
+            prioridad: "Normal",
+            estado: ticket.status === "proceso"
+                ? "En proceso"
+                : ticket.status === "completada"
+                    ? "Completada"
+                    : "Pendiente",
+            numero_ticket: ticket.ticketNumber || null,
+
+            datos: {
+                requester: ticket.requester || "",
+                contacto: ticket.contacto || "",
+                modelo: ticket.modelo || "",
+                serial: ticket.serial || "",
+                requerimiento: ticket.requerimiento || "",
+                sucursal: ticket.sucursal || "",
+                usuarios: ticket.usuarios || "",
+                conectividad: ticket.conectividad || "",
+                escaneo: ticket.escaneo || "",
+                diagnostico: ticket.diagnostico || "",
+                evidenceName: ticket.evidenceName || "",
+                evidenceData: ticket.evidenceData || "",
+                movedBy: ticket.movedBy || "",
+                movedAt: ticket.movedAt || ""
+            }
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error("Error guardando solicitud en Supabase:", error);
+        throw error;
     }
-    // Modo respaldo: guarda todo en localStorage (puede fallar con muchas imágenes)
-    const all = await loadAllTickets();
-    const idx = all.findIndex(t => t.id === ticket.id);
-    if (idx >= 0) all[idx] = ticket; else all.push(ticket);
-    localStorage.setItem(FALLBACK_KEY, JSON.stringify(all));
+
+    console.log("Solicitud guardada correctamente en Supabase:", data);
+
+    return data;
 }
 
 async function reloadTickets() {
