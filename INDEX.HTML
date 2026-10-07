@@ -1,0 +1,2675 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SITODEP - Solicitudes y Tickets TDM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .kanban-wrapper {
+            height: calc(100vh - 340px);
+            min-height: 420px;
+            overflow: hidden;
+        }
+        .kanban-grid {
+            height: 100%;
+            min-height: 0;
+        }
+        .kanban-column {
+            height: 100%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .kanban-col {
+            min-height: 60px;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 4px;
+        }
+        .kanban-col::-webkit-scrollbar { width: 7px; }
+        .kanban-col::-webkit-scrollbar-track { background: transparent; }
+        .kanban-col::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 999px;
+        }
+        .kanban-col.drag-over {
+            background: rgba(99,102,241,.08);
+            outline: 2px dashed #818cf8;
+            outline-offset: -4px;
+            border-radius: 12px;
+        }
+        .request-row:hover { background: #f8fafc; }
+        .modal-scroll { max-height: calc(100vh - 100px); overflow-y: auto; }
+        .dragging { opacity: .45; transform: rotate(1deg); }
+        .status-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: #475569;
+            margin-bottom: 6px;
+        }
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            font-size: 13px;
+            outline: none;
+            transition: .15s ease;
+        }
+        .form-input:focus {
+            background: white;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99,102,241,.12);
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800">
+
+<!-- =========================================================
+     LOGIN
+========================================================= -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 border border-white/20">
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 text-white rounded-2xl shadow-lg mb-4 text-2xl">
+                <i class="fa-solid fa-layer-group"></i>
+            </div>
+            <h1 class="text-2xl font-extrabold text-slate-900">SOLICITUD DE TICKETS · TDM</h1>
+            <p class="text-sm text-slate-500 mt-1">Sistema Interno de Gestión de Requerimientos</p>
+        </div>
+
+        <form id="login-form" onsubmit="handleLogin(event)" class="space-y-5">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">Usuario</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <i class="fa-solid fa-user"></i>
+                    </span>
+                    <input type="text" id="username" required
+                        placeholder="Ej. TDM.Nombre o CAC.Nombre"
+                        class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">Contraseña</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <i class="fa-solid fa-lock"></i>
+                    </span>
+                    <input type="password" id="password" required placeholder="••••••••••••"
+                        class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition">
+                </div>
+            </div>
+
+            <button type="submit"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+                <span>Iniciar Sesión</span>
+                <i class="fa-solid fa-arrow-right text-xs"></i>
+            </button>
+        </form>
+
+        <div class="mt-6 pt-6 border-t border-slate-100 text-xs text-slate-400 space-y-1">
+            <p class="font-medium text-slate-500 mb-2">Contraseña inicial: 1234567899 · puedes cambiarla al iniciar sesión</p>
+            <p>• <b>CAC.Nombre</b> — Crea y gestiona tickets / Panel operativo diario</p>
+            <p>• <b>TDM.Nombre</b> — Solicita tickets / Consulta global</p>
+        </div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     APP
+========================================================= -->
+<div id="app-screen" class="hidden min-h-screen flex flex-col">
+
+    <!-- HEADER -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 px-5 lg:px-8 py-4 shadow-sm">
+        <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold">
+                    <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold text-slate-900 leading-tight">SITODEP · Panel Operativo TDM</h2>
+                    <p class="text-xs text-slate-500" id="user-role-badge">Rol</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div class="text-right hidden sm:block">
+                    <p class="text-sm font-semibold text-slate-800" id="header-username">Usuario</p>
+                    <p class="text-xs text-emerald-600 font-medium">● En línea</p>
+                </div>
+                <button onclick="openPasswordModal()" title="Cambiar contraseña"
+                    class="p-2.5 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-key"></i>
+                </button>
+                <button onclick="logout()" title="Cerrar sesión"
+                    class="p-2.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+
+    <!-- =====================================================
+         VIEW: MORALEJA / SOLICITANTE
+    ====================================================== -->
+    <main id="requester-view" class="hidden flex-1 p-5 lg:p-8">
+        <div class="max-w-7xl mx-auto">
+
+            <div class="bg-white rounded-2xl border border-slate-200 p-5 mb-6 shadow-sm">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-emerald-700">Vista de solicitudes</span>
+                        </div>
+                        <h1 class="text-xl font-bold text-slate-900">Solicitudes de requerimientos</h1>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Consulta las solicitudes realizadas por tus compañeros para evitar duplicar un requerimiento.
+                        </p>
+                    </div>
+
+                    <button onclick="openRequestModal()"
+                        class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-xl text-sm font-semibold shadow-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Crear solicitud</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resumen operativo -->
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total solicitudes</p>
+                    <p id="requester-total" class="text-2xl font-extrabold text-slate-900 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Acumuladas</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-amber-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-amber-600">Pendientes</p>
+                    <p id="requester-pending" class="text-2xl font-extrabold text-amber-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Por gestionar</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-blue-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-blue-600">En proceso</p>
+                    <p id="requester-process" class="text-2xl font-extrabold text-blue-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">En atención</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-emerald-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Completadas</p>
+                    <p id="requester-completed" class="text-2xl font-extrabold text-emerald-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Finalizadas</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-rose-200 p-4 shadow-sm col-span-2 lg:col-span-1">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-rose-600">Canceladas</p>
+                    <p id="requester-canceled" class="text-2xl font-extrabold text-rose-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Anuladas</p>
+                </div>
+            </div>
+
+            <!-- BARRA DE BÚSQUEDA Y FILTROS -->
+            <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-6 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+                <div class="flex flex-1 flex-col sm:flex-row gap-3 w-full flex-wrap">
+                    <div class="relative flex-1 min-w-[200px]">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                            <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                        </span>
+                        <input type="text" id="filter-search" oninput="renderRequesterView()" placeholder="Buscar por cliente, tipo, acción o ticket..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500">
+                    </div>
+
+                    <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                        <i class="fa-regular fa-calendar text-indigo-600 text-xs"></i>
+                        <input type="date" id="filter-date" onchange="renderRequesterView()" class="bg-transparent text-xs text-slate-700 outline-none font-medium">
+                        <button onclick="clearDateFilter('requester')" title="Limpiar fecha" class="text-slate-400 hover:text-rose-500 text-xs pl-1">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <select id="filter-status" onchange="renderRequesterView()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-indigo-500">
+                        <option value="todos">Todos los estatus</option>
+                        <option value="pendiente">Pendientes</option>
+                        <option value="proceso">En proceso</option>
+                        <option value="completada">Completadas</option>
+                        <option value="cancelada">Canceladas</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2 w-full md:w-auto justify-end shrink-0">
+                    <button id="btn-filter-mine" onclick="toggleFilterMine()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-user text-indigo-600"></i>
+                        <span id="lbl-filter-mine">Ver solo mis solicitudes</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Lista general -->
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                    <div>
+                        <h2 class="font-bold text-slate-900">Todas las solicitudes</h2>
+                        <p class="text-xs text-slate-500 mt-0.5">Puedes abrir cualquier solicitud para consultar sus detalles completos.</p>
+                    </div>
+                    <i class="fa-solid fa-list-check text-slate-300"></i>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[950px]">
+                        <thead class="bg-slate-50 border-b border-slate-200">
+                            <tr class="text-left">
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Solicitud</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Prioridad</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Tipo</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Cliente</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Solicitado por</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Fecha / hora</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Estatus</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">No. Ticket</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="requester-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+
+    <!-- =====================================================
+         VIEW: KAROLIN / GESTORA
+    ====================================================== -->
+    <main id="manager-view" class="hidden flex-1 p-5 lg:p-8">
+        <div class="max-w-[1600px] mx-auto">
+
+            <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 mb-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm text-indigo-950">Panel Operativo de Creadora y Gestión</p>
+                        <p class="text-xs text-indigo-700 mt-0.5">
+                            Arrastra las tarjetas entre columnas (o usa los botones de la tarjeta). Las completadas de días anteriores pasan al histórico.
+                        </p>
+                    </div>
+                </div>
+
+                <button onclick="openHistoryModal()" class="shrink-0 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                    <i class="fa-solid fa-box-archive text-amber-400"></i>
+                    <span>Ver Histórico de Completadas</span>
+                </button>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-5 shadow-sm flex flex-col sm:flex-row gap-3 items-center justify-between">
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtrar tablero por día:</span>
+                    <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                        <i class="fa-regular fa-calendar text-indigo-600 text-xs"></i>
+                        <input type="date" id="manager-filter-date" onchange="renderKanban()" class="bg-transparent text-xs text-slate-700 outline-none font-semibold">
+                        <button onclick="clearDateFilter('manager')" title="Mostrar acumulado activo" class="text-slate-400 hover:text-rose-500 text-xs pl-1">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <p id="manager-date-badge" class="text-xs font-semibold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                    Mostrando jornada activa de hoy
+                </p>
+            </div>
+
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
+                <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">En pantalla</p>
+                    <p id="manager-total" class="text-2xl font-extrabold text-slate-900 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Órdenes activas</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-amber-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-amber-600">Pendientes</p>
+                    <p id="manager-pending" class="text-2xl font-extrabold text-amber-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Esperando gestión</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-blue-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-blue-600">En proceso</p>
+                    <p id="manager-process" class="text-2xl font-extrabold text-blue-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Actualmente atendiendo</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-emerald-200 p-4 shadow-sm">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Completadas hoy</p>
+                    <p id="manager-completed" class="text-2xl font-extrabold text-emerald-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Finalizadas de la fecha</p>
+                </div>
+                <div class="bg-white rounded-2xl border border-rose-200 p-4 shadow-sm col-span-2 lg:col-span-1">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-rose-600">Canceladas</p>
+                    <p id="manager-canceled" class="text-2xl font-extrabold text-rose-600 mt-1">0</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Anuladas</p>
+                </div>
+            </div>
+
+            <div class="kanban-wrapper">
+                <div class="kanban-grid grid grid-cols-1 md:grid-cols-4 gap-4">
+
+                <section class="kanban-column bg-slate-100 rounded-2xl p-4 border border-slate-200">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
+                        <div class="flex items-center gap-2">
+                            <span class="status-dot bg-amber-500"></span>
+                            <h3 class="font-bold text-sm text-slate-700">Pendiente</h3>
+                        </div>
+                        <span id="count-pendiente" class="bg-white text-slate-700 text-xs px-2.5 py-1 rounded-full font-bold shadow-sm">0</span>
+                    </div>
+                    <div id="col-pendiente" class="kanban-col space-y-3" ondragenter="dragEnter(event)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="drop(event, 'pendiente')"></div>
+                </section>
+
+                <section class="kanban-column bg-slate-100 rounded-2xl p-4 border border-slate-200">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
+                        <div class="flex items-center gap-2">
+                            <span class="status-dot bg-blue-500"></span>
+                            <h3 class="font-bold text-sm text-slate-700">En proceso</h3>
+                        </div>
+                        <span id="count-proceso" class="bg-white text-slate-700 text-xs px-2.5 py-1 rounded-full font-bold shadow-sm">0</span>
+                    </div>
+                    <div id="col-proceso" class="kanban-col space-y-3" ondragenter="dragEnter(event)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="drop(event, 'proceso')"></div>
+                </section>
+
+                <section class="kanban-column bg-slate-100 rounded-2xl p-4 border border-slate-200">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
+                        <div class="flex items-center gap-2">
+                            <span class="status-dot bg-emerald-500"></span>
+                            <h3 class="font-bold text-sm text-slate-700">Completada (Hoy)</h3>
+                        </div>
+                        <span id="count-completada" class="bg-white text-slate-700 text-xs px-2.5 py-1 rounded-full font-bold shadow-sm">0</span>
+                    </div>
+                    <div id="col-completada" class="kanban-col space-y-3" ondragenter="dragEnter(event)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="drop(event, 'completada')"></div>
+                </section>
+
+                <section class="kanban-column bg-slate-100 rounded-2xl p-4 border border-slate-200 opacity-90">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
+                        <div class="flex items-center gap-2">
+                            <span class="status-dot bg-rose-500"></span>
+                            <h3 class="font-bold text-sm text-slate-700">Cancelada</h3>
+                        </div>
+                        <span id="count-cancelada" class="bg-white text-slate-700 text-xs px-2.5 py-1 rounded-full font-bold shadow-sm">0</span>
+                    </div>
+                    <div id="col-cancelada" class="kanban-col space-y-3" ondragenter="dragEnter(event)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="drop(event, 'cancelada')"></div>
+                </section>
+
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+
+<!-- =========================================================
+     MODAL: HISTÓRICO
+========================================================= -->
+<div id="history-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-5xl modal-scroll border border-slate-100">
+        <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+            <div>
+                <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Módulo de Archivo</p>
+                <h3 class="font-bold text-xl text-slate-900">Histórico de Tickets Completados</h3>
+            </div>
+            <button onclick="closeHistoryModal()" class="w-9 h-9 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="p-6">
+            <div class="mb-4 flex flex-col sm:flex-row gap-3">
+                <input type="text" id="history-search" oninput="renderHistoryView()" placeholder="Buscar en el histórico..." class="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500">
+                <input type="date" id="history-date" onchange="renderHistoryView()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none">
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-2xl">
+                <table class="w-full min-w-[800px]">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-left text-[11px] font-bold uppercase text-slate-500">
+                        <tr>
+                            <th class="px-4 py-3">ID / Fecha</th>
+                            <th class="px-4 py-3">Tipo</th>
+                            <th class="px-4 py-3">Cliente</th>
+                            <th class="px-4 py-3">Solicitante</th>
+                            <th class="px-4 py-3">Movido por</th>
+                            <th class="px-4 py-3">Completado por</th>
+                            <th class="px-4 py-3">No. Ticket</th>
+                            <th class="px-4 py-3 text-right">Ver</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     MODAL: CREAR SOLICITUD
+========================================================= -->
+<div id="request-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl modal-scroll">
+        <div class="sticky top-0 bg-white z-10 px-6 py-5 border-b border-slate-100 flex items-center justify-between rounded-t-3xl">
+            <div>
+                <p class="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Nueva solicitud</p>
+                <h3 class="font-bold text-xl text-slate-900" id="modal-step-title">Paso 1: Tipo de Solicitud</h3>
+                <p class="text-xs text-slate-500 mt-1" id="modal-step-subtitle">Selecciona el tipo de orden para continuar con los datos requeridos.</p>
+            </div>
+            <button onclick="closeRequestModal()" class="w-9 h-9 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- PASO 1 -->
+        <div id="step-1-container" class="p-6 space-y-6">
+            <div>
+                <label class="form-label">Selecciona el Tipo de Orden / Solicitud *</label>
+                <select id="step1-tipo-orden" class="form-input text-base py-3">
+                    <option value="">-- Seleccionar tipo de solicitud --</option>
+                    <option value="SUPERVISIÓN TÉCNICA">1. SUPERVISIÓN TÉCNICA</option>
+                    <option value="REPARACIÓN DE EQUIPO">2. REPARACIÓN DE EQUIPO</option>
+                    <option value="DIAGNÓSTICO EXTERNO CLIENTE">3. DIAGNÓSTICO EXTERNO CLIENTE</option>
+                    <option value="RETIRO DE EQUIPO">4. RETIRO DE EQUIPO</option>
+                    <option value="DEVOLUCIÓN DE EQUIPO">5. DEVOLUCIÓN DE EQUIPO</option>
+                    <option value="LEVANTAMIENTO">6. LEVANTAMIENTO</option>
+                    <option value="ENVÍO AL INTERIOR">7. ENVÍO AL INTERIOR</option>
+                    <option value="ENVÍO AL INTERIOR DEL PAÍS">8. ENVÍO AL INTERIOR DEL PAÍS</option>
+                    <option value="NUEVA INSTALACIÓN">9. NUEVA INSTALACIÓN</option>
+                    <option value="CAMBIO DE EQUIPO">10. CAMBIO DE EQUIPO</option>
+                    <option value="SOPORTE TÉCNICO">11. SOPORTE TÉCNICO</option>
+                    <option value="SOPORTE REMOTO">12. SOPORTE REMOTO</option>
+                    <option value="MANTENIMIENTO">13. MANTENIMIENTO</option>
+                    <option value="MENSAJERÍA">14. MENSAJERÍA</option>
+                    <option value="VENTA DIRECTA">15. VENTA DIRECTA</option>
+                </select>
+            </div>
+
+            <div class="pt-4 border-t border-slate-100 flex justify-end gap-3">
+                <button type="button" onclick="closeRequestModal()" class="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">
+                    Cancelar
+                </button>
+                <button type="button" onclick="goToStep2()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm flex items-center gap-2">
+                    <span>Siguiente</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- PASO 2 -->
+        <form id="request-form" onsubmit="handleCreateRequest(event)" class="p-6 space-y-5 hidden">
+
+            <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-indigo-500">Tipo Seleccionado</span>
+                    <h4 class="font-extrabold text-indigo-900" id="display-selected-type">—</h4>
+                </div>
+                <button type="button" onclick="backToStep1()" class="text-xs font-bold text-indigo-600 hover:underline">
+                    <i class="fa-solid fa-pen mr-1"></i>Cambiar
+                </button>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 pb-2">
+                    Acción y Equipos
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="form-label">Tipo de Acción a Realizar *</label>
+                        <input id="f-accion" required class="form-input" placeholder="Ej. Instalación de driver, revisión física, cambio de tóner...">
+                    </div>
+
+                    <div id="grp-modelo-actual" class="hidden">
+                        <label class="form-label">Modelo Actual / A Retirar</label>
+                        <input id="f-modelo-actual" class="form-input" placeholder="Modelo del equipo actual">
+                    </div>
+                    <div id="grp-serial-actual" class="hidden">
+                        <label class="form-label">Serial del Equipo Actual</label>
+                        <input id="f-serial-actual" class="form-input" placeholder="Serial del equipo actual">
+                    </div>
+
+                    <div id="grp-modelo-nuevo">
+                        <label class="form-label" id="lbl-modelo-nuevo">Modelo del Equipo</label>
+                        <input id="f-modelo" class="form-input" placeholder="Modelo del equipo">
+                    </div>
+                    <div id="grp-serial-nuevo">
+                        <label class="form-label" id="lbl-serial-nuevo">Serial del Equipo</label>
+                        <input id="f-serial" class="form-input" placeholder="Serial del equipo">
+                    </div>
+                </div>
+            </div>
+
+            <div id="sec-campos-estandar" class="space-y-4">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 pb-2">
+                    Datos del Cliente / Sucursal
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="form-label">Cliente *</label>
+                        <input id="f-cliente" required class="form-input" placeholder="Nombre de la empresa / cliente">
+                    </div>
+                    <div>
+                        <label class="form-label">Prioridad *</label>
+                        <select id="f-prioridad" required class="form-input">
+                            <option value="Normal">Normal</option>
+                            <option value="Urgente">Urgente</option>
+                            <option value="INMEDIATO">INMEDIATO</option>
+                        </select>
+                    </div>
+                    <div id="grp-recibe">
+                        <label class="form-label">¿Quién Recibe en Sucursal?</label>
+                        <input id="f-recibe" class="form-input" placeholder="Persona autorizada que recibe">
+                    </div>
+                    <div>
+                        <label class="form-label">Teléfono de Contacto *</label>
+                        <input id="f-contacto" required class="form-input" placeholder="Teléfono de contacto">
+                    </div>
+                    <div id="grp-fecha-recepcion" class="hidden">
+                        <label class="form-label">Fecha de Recepción</label>
+                        <input type="date" id="f-fecha-recepcion" class="form-input">
+                    </div>
+                    <div id="grp-reporta">
+                        <label class="form-label">Usuario que Reporta *</label>
+                        <input id="f-reporta" required class="form-input bg-slate-100" placeholder="Nombre de quien reporta">
+                    </div>
+                </div>
+            </div>
+
+            <div id="sec-campos-especificos" class="space-y-4">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 pb-2">
+                    Detalles Específicos de la Solicitud
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <div id="grp-facturacion" class="hidden">
+                        <label class="form-label">Tipo de Facturación</label>
+                        <select id="f-facturacion" class="form-input">
+                            <option value="">Seleccionar...</option>
+                            <option>Crédito</option>
+                            <option>Contado</option>
+                            <option>Sin Costo / Garantía</option>
+                            <option>Contrato Renta</option>
+                        </select>
+                    </div>
+
+                    <div id="grp-tipo-mantenimiento" class="hidden">
+                        <label class="form-label">Tipo de Mantenimiento</label>
+                        <select id="f-tipo-mantenimiento" class="form-input">
+                            <option value="">Seleccionar...</option>
+                            <option>Preventivo</option>
+                            <option>Correctivo</option>
+                        </select>
+                    </div>
+
+                    <div id="grp-usuarios-afectados" class="hidden">
+                        <label class="form-label">Usuarios Afectados</label>
+                        <input id="f-usuarios-afectados" type="number" min="1" class="form-input" placeholder="Ej. 3">
+                    </div>
+
+                    <div id="grp-tipo-escaneo" class="hidden">
+                        <label class="form-label">Tipo de Escaneo</label>
+                        <select id="f-escaneo" class="form-input">
+                            <option value="">Seleccionar...</option>
+                            <option>Carpeta de red (SMB)</option>
+                            <option>Correo electrónico (Email)</option>
+                            <option>USB</option>
+                            <option>FTP / Servidor</option>
+                            <option>No aplica</option>
+                        </select>
+                    </div>
+
+                    <div id="grp-cantidad-usuarios" class="hidden">
+                        <label class="form-label">Cantidad de Usuarios</label>
+                        <input id="f-cantidad-usuarios" type="number" min="1" class="form-input" placeholder="Ej. 10">
+                    </div>
+
+                    <div id="grp-conectividad" class="hidden">
+                        <label class="form-label">Tipo de Conectividad</label>
+                        <select id="f-conectividad" class="form-input">
+                            <option value="">Seleccionar...</option>
+                            <option>Red Cableada</option>
+                            <option>Wi-Fi</option>
+                            <option>USB</option>
+                            <option>Red + Wi-Fi</option>
+                        </select>
+                    </div>
+
+                    <div id="grp-incluye-instalacion" class="hidden">
+                        <label class="form-label">¿Incluye Instalación?</label>
+                        <select id="f-incluye-instalacion" class="form-input">
+                            <option value="">Seleccionar...</option>
+                            <option>Sí</option>
+                            <option>No</option>
+                        </select>
+                    </div>
+
+                    <div id="grp-departamento" class="hidden">
+                        <label class="form-label">Departamento</label>
+                        <input id="f-departamento" class="form-input" placeholder="Ej. Contabilidad, Recepción...">
+                    </div>
+
+                    <div id="grp-ultima-reparacion" class="hidden">
+                        <label class="form-label">Fecha Última Reparación</label>
+                        <input type="date" id="f-ultima-reparacion" class="form-input">
+                    </div>
+
+                    <div id="grp-delivery" class="hidden md:col-span-2">
+                        <div class="flex items-center gap-2 pt-2">
+                            <input type="checkbox" id="f-delivery" class="w-4 h-4 text-indigo-600 rounded">
+                            <label for="f-delivery" class="text-sm font-semibold text-slate-700">Incluir servicio de delivery</label>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="space-y-4 pt-2">
+                <div>
+                    <label class="form-label">Notas / Observaciones Adicionales</label>
+                    <textarea id="f-notas" rows="3" class="form-input" placeholder="Añade detalles, especificaciones o requerimientos del cliente..."></textarea>
+                </div>
+
+                <div>
+                    <label class="form-label">Adjuntar Fotos / Evidencias (Múltiples)</label>
+                    <input id="f-evidencias" type="file" accept="image/*" multiple
+                        class="w-full text-sm text-slate-500 border border-slate-300 rounded-xl p-2 bg-slate-50">
+                    <p class="text-[11px] text-slate-400 mt-1">Puedes seleccionar varias imágenes. Se optimizan automáticamente para guardarlas.</p>
+                </div>
+            </div>
+
+            <div class="pt-4 border-t border-slate-100 flex justify-between gap-3">
+                <button type="button" onclick="backToStep1()"
+                    class="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">
+                    <i class="fa-solid fa-arrow-left mr-1"></i> Atrás
+                </button>
+                <div class="flex gap-2">
+                    <button type="button" onclick="closeRequestModal()"
+                        class="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">
+                        Cancelar
+                    </button>
+                    <button id="btn-submit-request" type="submit"
+                        class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm flex items-center gap-2">
+                        <span>Registrar solicitud</span>
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     MODAL: CANCELAR
+========================================================= -->
+<div id="cancel-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-100">
+        <div class="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4 text-xl">
+            <i class="fa-solid fa-ban"></i>
+        </div>
+        <h3 class="text-lg font-bold text-slate-900">Cancelar Solicitud</h3>
+        <p class="text-sm text-slate-500 mt-1 mb-4">
+            Por favor indica el motivo por el cual deseas anular o cancelar este requerimiento.
+        </p>
+
+        <div>
+            <label class="form-label">Motivo de Cancelación *</label>
+            <textarea id="cancel-reason" rows="3" required class="form-input" placeholder="Escribe la razón aquí..."></textarea>
+        </div>
+
+        <div class="mt-6 flex justify-end gap-3">
+            <button onclick="closeCancelModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm rounded-xl transition">
+                Volver
+            </button>
+            <button onclick="confirmCancelRequest()" class="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm rounded-xl transition shadow-sm">
+                Confirmar Cancelación
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     MODAL: DETALLE
+========================================================= -->
+<div id="detail-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl modal-scroll">
+        <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+            <div>
+                <p id="detail-kicker" class="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Solicitud</p>
+                <h3 id="detail-title" class="font-bold text-xl text-slate-900">Detalle</h3>
+            </div>
+            <button onclick="closeDetailModal()" class="w-9 h-9 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div id="detail-body" class="p-6"></div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     VISOR DE EVIDENCIAS (LIGHTBOX) - SE ABRE DENTRO DEL SISTEMA
+========================================================= -->
+<div id="lightbox-modal" class="fixed inset-0 bg-slate-950/90 hidden items-center justify-center z-[70] p-4" onclick="closeLightbox()">
+    <div class="w-full max-w-5xl flex flex-col max-h-full" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between text-white mb-3 gap-3">
+            <div class="min-w-0">
+                <p id="lb-name" class="font-semibold text-sm truncate">Evidencia</p>
+                <p id="lb-counter" class="text-xs text-slate-300">1 / 1</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button onclick="downloadCurrentEvidence()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-download"></i><span>Descargar</span>
+                </button>
+                <button onclick="closeLightbox()" class="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="relative flex items-center justify-center min-h-0">
+            <button id="lb-prev" onclick="lightboxStep(-1)" class="absolute left-0 z-10 w-10 h-10 rounded-full bg-white/15 hover:bg-white/30 text-white">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <img id="lb-img" src="" alt="Evidencia" class="max-h-[75vh] max-w-full object-contain rounded-xl bg-white/5">
+            <button id="lb-next" onclick="lightboxStep(1)" class="absolute right-0 z-10 w-10 h-10 rounded-full bg-white/15 hover:bg-white/30 text-white">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     MODAL: COMPLETAR
+========================================================= -->
+<div id="complete-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4">
+            <i class="fa-solid fa-check"></i>
+        </div>
+        <h3 class="text-xl font-bold text-slate-900">Marcar como completada</h3>
+        <p class="text-sm text-slate-500 mt-1 mb-5">
+            Antes de completar esta solicitud, registra el número de ticket/orden generado.
+        </p>
+
+        <input id="completion-ticket-number" class="form-input" placeholder="Ej. TDM-2026-00125" required>
+
+        <div class="flex justify-end gap-3 mt-5">
+            <button onclick="closeCompleteModal()" class="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">
+                Cancelar
+            </button>
+            <button onclick="confirmComplete()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold">
+                Confirmar
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     MODAL: CAMBIAR CONTRASEÑA
+========================================================= -->
+<div id="password-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <form onsubmit="handleChangePassword(event)" class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-4">
+            <i class="fa-solid fa-key"></i>
+        </div>
+        <h3 class="text-xl font-bold text-slate-900">Cambiar contraseña</h3>
+        <p class="text-sm text-slate-500 mt-1 mb-5">Usuario: <b id="pw-username"></b></p>
+
+        <div class="space-y-4">
+            <div>
+                <label class="form-label">Contraseña actual</label>
+                <input type="password" id="pw-current" class="form-input" required autocomplete="current-password">
+            </div>
+            <div>
+                <label class="form-label">Nueva contraseña (mínimo 6 caracteres)</label>
+                <input type="password" id="pw-new" class="form-input" required autocomplete="new-password">
+            </div>
+            <div>
+                <label class="form-label">Confirmar nueva contraseña</label>
+                <input type="password" id="pw-confirm" class="form-input" required autocomplete="new-password">
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-6">
+            <button type="button" onclick="closePasswordModal()" class="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">
+                Cancelar
+            </button>
+            <button type="submit" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold">
+                Guardar contraseña
+            </button>
+        </div>
+    </form>
+</div>
+
+
+<!-- =========================================================
+     MODALES ESTILIZADOS
+========================================================= -->
+<div id="custom-alert-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-[80] p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-100">
+        <div id="custom-alert-icon" class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-4 text-xl">
+            <i class="fa-solid fa-circle-info"></i>
+        </div>
+        <h3 id="custom-alert-title" class="text-lg font-bold text-slate-900">Notificación</h3>
+        <p id="custom-alert-message" class="text-sm text-slate-600 mt-2 whitespace-pre-line"></p>
+        <div class="mt-6 flex justify-end">
+            <button id="custom-alert-btn" onclick="closeCustomAlert()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl transition shadow-sm">
+                Entendido
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="custom-confirm-modal" class="fixed inset-0 bg-slate-950/55 backdrop-blur-sm hidden items-center justify-center z-[80] p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-100">
+        <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mb-4 text-xl">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <h3 id="custom-confirm-title" class="text-lg font-bold text-slate-900">Atención: Modelo / Serial Faltante</h3>
+        <p id="custom-confirm-message" class="text-sm text-slate-600 mt-2 whitespace-pre-line">No has especificado el Modelo o Serial del Equipo en esta solicitud.
+
+¿Deseas volver al formulario para completarlo o prefieres continuar registrando la solicitud sin este dato?</p>
+        <div class="mt-6 flex flex-col sm:flex-row justify-end gap-3">
+            <button id="custom-confirm-no-btn" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm rounded-xl transition">
+                No requerible (Continuar)
+            </button>
+            <button id="custom-confirm-yes-btn" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl transition shadow-sm">
+                Volver y Completar
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<script>
+/* =========================================================
+   CONFIGURACIÓN DE USUARIOS / PERMISOS
+========================================================= */
+
+/* #########################################################################
+   ##  LISTA_USUARIOS  ·  AQUÍ AGREGAS O QUITAS PERSONAS  (buscar: LISTA_USUARIOS)
+   ##
+   ##  - Solo escribe el NOMBRE entre comillas, separado por coma.
+   ##  - El sistema arma solo el usuario:  CAC.Nombre  /  TDM.Nombre
+   ##  - No importa si escriben cac / CAC / tdm / TDM / mayúsculas / tildes:
+   ##    siempre se reconoce al mismo usuario.
+   ##  - Para QUITAR a alguien: borra su línea (o ponle // delante).
+   ##  - Para AGREGAR a alguien: copia una línea y cambia el nombre.
+   ######################################################################### */
+
+/* >>> CAC: PUEDEN CREAR Y GESTIONAR TICKETS (usuario = CAC.Nombre) <<< */
+const CAC_USERS = [
+    "Karolin",
+    "Alexander",
+    "Lissy",
+    "Moise",
+    "Yandra",
+    "Johan",
+    // "Nombre7",
+];
+
+/* >>> TDM: SOLO PUEDEN SOLICITAR TICKETS (usuario = TDM.Nombre) <<< */
+const TDM_USERS = [
+    "Aschelly",
+    "Lennisse",
+    "Giovanna",
+    "Prueba",
+    // ... (aquí van los ~50 solicitantes, uno por línea)
+];
+
+/* Contraseña inicial de TODOS (cada quien puede cambiarla con el botón de la llave 🔑) */
+const DEFAULT_PASSWORD = "1234567899";
+
+/* Si algún día quieres que TODOS vuelvan a la contraseña inicial
+   (por ejemplo, alguien olvidó la suya), sube este número: 1 → 2 → 3 ... */
+const PASSWORD_RESET_VERSION = 1;
+
+const PASS_STORE_KEY = "sitodep_tdm_passwords_v1";
+
+/* ---------- Normalización: CAC.Karolin = cac.karolin = CAC.KAROLÍN ---------- */
+function normalizeUser(str) {
+    return (str || "").toString()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // quita tildes
+        .trim()
+        .replace(/\s*\.\s*/g, ".")                          // "cac . juan" -> "cac.juan"
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+}
+
+/* ---------- Construcción automática de USERS a partir de las listas ---------- */
+const USERS = {};
+
+function registerUsers(list, prefix, role, label) {
+    list.forEach(rawName => {
+        // Si alguien escribe "CAC.Karolin" en la lista, se le quita el prefijo repetido
+        const name = (rawName || "").toString().trim()
+            .replace(new RegExp("^" + prefix + "\\s*\\.\\s*", "i"), "").trim();
+        if (!name) return;
+
+        const display = prefix + "." + name;      // como se ve en pantalla
+        const key = normalizeUser(display);       // como se compara internamente
+        if (USERS[key]) {
+            console.warn("Usuario repetido en la lista:", display);
+            return;
+        }
+        USERS[key] = { key, name, display, prefix, role, label };
+    });
+}
+
+registerUsers(CAC_USERS, "CAC", "manager",   "Gestor / creador de tickets (CAC)");
+registerUsers(TDM_USERS, "TDM", "requester", "Solicitante / vista de seguimiento (TDM)");
+
+/* Tickets guardados con el formato anterior de usuario (se siguen reconociendo) */
+const LEGACY_USER_MAP = {
+    "karolin.tdm":  "cac.karolin",
+    "moraleja.tdm": "tdm.moraleja"
+};
+
+function resolveUserKey(raw) {
+    const k = normalizeUser(raw);
+    return USERS[k] ? k : (LEGACY_USER_MAP[k] || k);
+}
+
+function displayUser(raw) {
+    const u = USERS[resolveUserKey(raw)];
+    return u ? u.display : (raw || "");
+}
+
+/* ---------- Permisos ---------- */
+function isManager()   { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "manager"; }
+function isRequester() { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "requester"; }
+
+/* ---------- Contraseñas (guardadas en el navegador, como los tickets) ---------- */
+async function hashPassword(userKey, pass) {
+    const text = "sitodep|" + userKey + "|" + pass;
+    try {
+        if (window.crypto && window.crypto.subtle) {
+            const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+            return "s256:" + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+        }
+    } catch {}
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+    return "d33:" + (h >>> 0).toString(16);
+}
+
+function loadPasswordStore() {
+    try {
+        const store = JSON.parse(localStorage.getItem(PASS_STORE_KEY) || "null");
+        if (store && store.v === PASSWORD_RESET_VERSION && store.users) return store;
+    } catch {}
+    return { v: PASSWORD_RESET_VERSION, users: {} };
+}
+
+function savePasswordStore(store) {
+    try {
+        localStorage.setItem(PASS_STORE_KEY, JSON.stringify(store));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function checkPassword(userKey, pass) {
+    const saved = loadPasswordStore().users[userKey];
+    if (saved) return saved === await hashPassword(userKey, pass);
+    return pass === DEFAULT_PASSWORD;   // aún no la ha cambiado: usa la inicial
+}
+
+
+const OLD_STORAGE_KEY = "sitodep_tdm_requests_v9";     // versión anterior (localStorage)
+const FALLBACK_KEY    = "sitodep_tdm_requests_v10";    // solo si IndexedDB no está disponible
+const MIGRATED_KEY    = "sitodep_tdm_migrated_v10";
+const SESSION_KEY     = "sitodep_tdm_active_user";
+const DB_NAME         = "sitodep_tdm_db";
+const DB_STORE        = "tickets";
+
+let currentUser = null;
+let draggedTicketId = null;
+let ticketBeingCompleted = null;
+let ticketBeingCanceled = null;
+let selectedOrderType = "";
+let filterOnlyMine = false;
+let tickets = [];
+
+let dbRef = null;          // conexión IndexedDB (null = modo respaldo localStorage)
+let channel = null;        // sincroniza pestañas / usuarios en el mismo navegador
+let lbTicketId = null;
+let lbIndex = 0;
+
+
+/* =========================================================
+   CAPA DE ALMACENAMIENTO (IndexedDB: soporta muchas imágenes)
+========================================================= */
+function openDB() {
+    return new Promise((resolve, reject) => {
+        if (!window.indexedDB) return reject(new Error("IndexedDB no disponible"));
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(DB_STORE)) {
+                db.createObjectStore(DB_STORE, { keyPath: "id" });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbGetAll() {
+    return new Promise((resolve, reject) => {
+        const tx = dbRef.transaction(DB_STORE, "readonly");
+        const req = tx.objectStore(DB_STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbPut(ticket) {
+    return new Promise((resolve, reject) => {
+        const tx = dbRef.transaction(DB_STORE, "readwrite");
+        tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(ticket)));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error("Transacción abortada"));
+    });
+}
+
+async function loadAllTickets() {
+    if (dbRef) return await dbGetAll();
+    try {
+        return JSON.parse(localStorage.getItem(FALLBACK_KEY) || "[]");
+    } catch {
+        return [];
+    }
+}
+
+async function persistTicket(ticket) {
+    if (dbRef) {
+        await dbPut(ticket);
+        return;
+    }
+    // Modo respaldo: guarda todo en localStorage (puede fallar con muchas imágenes)
+    const all = await loadAllTickets();
+    const idx = all.findIndex(t => t.id === ticket.id);
+    if (idx >= 0) all[idx] = ticket; else all.push(ticket);
+    localStorage.setItem(FALLBACK_KEY, JSON.stringify(all));
+}
+
+async function reloadTickets() {
+    tickets = await loadAllTickets();
+}
+
+function notifyChange() {
+    try { if (channel) channel.postMessage("changed"); } catch {}
+}
+
+function renderCurrent() {
+    if (!currentUser || !USERS[currentUser]) return;
+    if (USERS[currentUser].role === "manager") {
+        renderKanban();
+        if (!document.getElementById("history-modal").classList.contains("hidden")) renderHistoryView();
+    } else {
+        renderRequesterView();
+    }
+}
+
+async function reloadAndRender() {
+    if (draggedTicketId) return; // no refrescar en medio de un arrastre
+    try {
+        await reloadTickets();
+        renderCurrent();
+    } catch (err) {
+        console.error("Error recargando:", err);
+    }
+}
+
+async function initStorage() {
+    try {
+        dbRef = await openDB();
+    } catch (err) {
+        console.warn("IndexedDB no disponible, usando localStorage:", err);
+        dbRef = null;
+    }
+
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
+
+    await reloadTickets();
+
+    // Migración desde la versión anterior (localStorage v9)
+    if (!tickets.length && !localStorage.getItem(MIGRATED_KEY)) {
+        let migrated = false;
+        try {
+            const old = JSON.parse(localStorage.getItem(OLD_STORAGE_KEY) || "null");
+            if (Array.isArray(old) && old.length) {
+                for (const t of old) await persistTicket(t);
+                migrated = true;
+            }
+        } catch (err) {
+            console.warn("No se pudo migrar:", err);
+        }
+        if (!migrated) {
+            for (const t of buildDemoTickets()) await persistTicket(t);
+        }
+        try { localStorage.setItem(MIGRATED_KEY, "1"); } catch {}
+        await reloadTickets();
+    }
+
+    try {
+        channel = new BroadcastChannel("sitodep_tdm_channel");
+        channel.onmessage = () => reloadAndRender();
+    } catch {}
+
+    window.addEventListener("storage", e => {
+        if (e.key === FALLBACK_KEY) reloadAndRender();
+    });
+    window.addEventListener("focus", reloadAndRender);
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) reloadAndRender();
+    });
+    setInterval(reloadAndRender, 10000);
+}
+
+function buildDemoTickets() {
+    return [{
+        id: 1,
+        createdAt: new Date().toISOString(),
+        status: "pendiente",
+        tipo: "CAMBIO DE EQUIPO",
+        accion: "Sustitución Por Desgaste General",
+        cliente: "Cliente Demo 1",
+        prioridad: "INMEDIATO",
+        recibe: "Juan Pérez",
+        contacto: "809-555-0101",
+        fechaRecepcion: getTodayString(),
+        reporta: "Moraleja",
+        requester: "tdm.moraleja",
+        modeloActual: "HP LASERJET M404",
+        serialActual: "SN-HP-9988",
+        modeloNuevo: "EPSON ECOTANK L5290",
+        serialNuevo: "SN-EPS-1122",
+        cantidadUsuarios: "5",
+        conectividad: "Red Cableada",
+        departamento: "Administración",
+        notas: "Requiere entregarse con cable de red adicional.",
+        evidencias: [],
+        movedBy: "",
+        movedAt: "",
+        ticketNumber: "",
+        cancelReason: "",
+        canceledBy: "",
+        canceledAt: ""
+    }];
+}
+
+
+/* =========================================================
+   HELPERS DE FECHA Y FORMATO
+========================================================= */
+function toLocalISODate(d) {
+    const x = new Date(d);
+    if (isNaN(x)) return "";
+    return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+}
+
+function getTodayString() {
+    return toLocalISODate(new Date());
+}
+
+// Día en que "cuenta" el ticket dentro del tablero de la gestora
+function ticketBoardDay(t) {
+    if (t.status === "completada") return toLocalISODate(t.completedAt || t.createdAt);
+    if (t.status === "cancelada") return toLocalISODate(t.canceledAt || t.createdAt);
+    return toLocalISODate(t.createdAt);
+}
+
+function formatTitleCase(str) {
+    if (!str) return "";
+    return str.toString().toLowerCase().split(' ').map(word => {
+        if (!word) return '';
+        return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(' ');
+}
+
+function priorityBadge(priority) {
+    if (priority === "INMEDIATO") {
+        return "bg-rose-100 text-rose-800 font-extrabold border border-rose-200";
+    }
+    if (priority === "Urgente") {
+        return "bg-amber-100 text-amber-800 font-bold border border-amber-200";
+    }
+    return "bg-slate-100 text-slate-700 font-medium border border-slate-200";
+}
+
+
+/* =========================================================
+   MODALES Y ALERTAS
+========================================================= */
+function showCustomAlert(message, title = "Notificación", type = "info") {
+    const modal = document.getElementById("custom-alert-modal");
+    const titleEl = document.getElementById("custom-alert-title");
+    const msgEl = document.getElementById("custom-alert-message");
+    const iconEl = document.getElementById("custom-alert-icon");
+
+    titleEl.innerText = title;
+    msgEl.innerText = message;
+
+    if (type === "success") {
+        iconEl.className = "w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4 text-xl";
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
+    } else if (type === "error") {
+        iconEl.className = "w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4 text-xl";
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-xmark"></i>';
+    } else {
+        iconEl.className = "w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-4 text-xl";
+        iconEl.innerHTML = '<i class="fa-solid fa-circle-info"></i>';
+    }
+
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+}
+
+function closeCustomAlert() {
+    const modal = document.getElementById("custom-alert-modal");
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+}
+
+function showEquipmentConfirmModal(onYes, onNo) {
+    const modal = document.getElementById("custom-confirm-modal");
+    const yesBtn = document.getElementById("custom-confirm-yes-btn");
+    const noBtn = document.getElementById("custom-confirm-no-btn");
+
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+
+    const closeModal = () => {
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+    };
+
+    yesBtn.onclick = () => { closeModal(); if (onYes) onYes(); };
+    noBtn.onclick = () => { closeModal(); if (onNo) onNo(); };
+}
+
+
+/* =========================================================
+   LOGIN / LOGOUT / PERSISTENCIA DE SESIÓN
+========================================================= */
+async function handleLogin(e) {
+    e.preventDefault();
+
+    const user = normalizeUser(document.getElementById("username").value);
+    const pass = document.getElementById("password").value.trim();
+
+    if (!USERS[user] || !(await checkPassword(user, pass))) {
+        showCustomAlert("Usuario o contraseña incorrectos.", "Error de Inicio de Sesión", "error");
+        return;
+    }
+
+    currentUser = user;
+    localStorage.setItem(SESSION_KEY, currentUser);
+
+    await reloadTickets();
+
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("app-screen").classList.remove("hidden");
+
+    initDashboard();
+}
+
+function logout() {
+    currentUser = null;
+    localStorage.removeItem(SESSION_KEY);
+
+    document.getElementById("app-screen").classList.add("hidden");
+    document.getElementById("login-screen").classList.remove("hidden");
+    document.getElementById("username").value = "";
+    document.getElementById("password").value = "";
+}
+
+function checkActiveSession() {
+    const savedUser = localStorage.getItem(SESSION_KEY);
+    if (savedUser && USERS[savedUser]) {
+        currentUser = savedUser;
+        document.getElementById("login-screen").classList.add("hidden");
+        document.getElementById("app-screen").classList.remove("hidden");
+        initDashboard();
+    }
+}
+
+/* =========================================================
+   CAMBIO DE CONTRASEÑA
+========================================================= */
+function openPasswordModal() {
+    if (!currentUser || !USERS[currentUser]) return;
+    document.getElementById("pw-username").innerText = USERS[currentUser].display;
+    ["pw-current", "pw-new", "pw-confirm"].forEach(id => document.getElementById(id).value = "");
+    const modal = document.getElementById("password-modal");
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    setTimeout(() => document.getElementById("pw-current").focus(), 50);
+}
+
+function closePasswordModal() {
+    const modal = document.getElementById("password-modal");
+    if (!modal) return;
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+}
+
+async function handleChangePassword(e) {
+    e.preventDefault();
+    if (!currentUser || !USERS[currentUser]) return;
+
+    const current = document.getElementById("pw-current").value.trim();
+    const next    = document.getElementById("pw-new").value.trim();
+    const confirm = document.getElementById("pw-confirm").value.trim();
+
+    if (!(await checkPassword(currentUser, current))) {
+        showCustomAlert("La contraseña actual no es correcta.", "Contraseña Incorrecta", "error");
+        return;
+    }
+    if (next.length < 6) {
+        showCustomAlert("La nueva contraseña debe tener al menos 6 caracteres.", "Contraseña Muy Corta", "info");
+        return;
+    }
+    if (next === DEFAULT_PASSWORD) {
+        showCustomAlert("La nueva contraseña no puede ser la contraseña inicial.", "Elige Otra Contraseña", "info");
+        return;
+    }
+    if (next !== confirm) {
+        showCustomAlert("La confirmación no coincide con la nueva contraseña.", "No Coinciden", "info");
+        return;
+    }
+
+    const store = loadPasswordStore();
+    store.users[currentUser] = await hashPassword(currentUser, next);
+
+    if (!savePasswordStore(store)) {
+        showCustomAlert("No se pudo guardar la contraseña en este navegador. Intenta nuevamente.", "Error al Guardar", "error");
+        return;
+    }
+
+    closePasswordModal();
+    showCustomAlert("Tu contraseña fue actualizada. Úsala la próxima vez que inicies sesión.", "Contraseña Actualizada", "info");
+}
+
+function initDashboard() {
+    const user = USERS[currentUser];
+
+    document.getElementById("header-username").innerText = user.display;
+    document.getElementById("user-role-badge").innerText = "Rol: " + user.label;
+
+    const requesterView = document.getElementById("requester-view");
+    const managerView = document.getElementById("manager-view");
+
+    requesterView.classList.add("hidden");
+    managerView.classList.add("hidden");
+
+    if (user.role === "requester") {
+        requesterView.classList.remove("hidden");
+        renderRequesterView();
+    }
+
+    if (user.role === "manager") {
+        managerView.classList.remove("hidden");
+        if (!document.getElementById("manager-filter-date").value) {
+            document.getElementById("manager-filter-date").value = getTodayString();
+        }
+        renderKanban();
+    }
+}
+
+
+/* =========================================================
+   VISTA SOLICITANTE
+========================================================= */
+function toggleFilterMine() {
+    filterOnlyMine = !filterOnlyMine;
+    const btn = document.getElementById("btn-filter-mine");
+    const lbl = document.getElementById("lbl-filter-mine");
+
+    if (filterOnlyMine) {
+        btn.classList.remove("bg-slate-100", "text-slate-700");
+        btn.classList.add("bg-indigo-600", "text-white");
+        lbl.innerText = "Mostrando solo mis solicitudes";
+    } else {
+        btn.classList.remove("bg-indigo-600", "text-white");
+        btn.classList.add("bg-slate-100", "text-slate-700");
+        lbl.innerText = "Ver solo mis solicitudes";
+    }
+
+    renderRequesterView();
+}
+
+function clearDateFilter(target) {
+    if (target === 'requester') {
+        document.getElementById("filter-date").value = "";
+        renderRequesterView();
+    } else {
+        document.getElementById("manager-filter-date").value = "";
+        renderKanban();
+    }
+}
+
+function renderRequesterView() {
+    const tbody = document.getElementById("requester-table-body");
+    const searchVal = value("filter-search").toLowerCase();
+    const statusVal = value("filter-status");
+    const dateVal = value("filter-date");
+
+    let filtered = [...tickets];
+
+    if (filterOnlyMine) {
+        filtered = filtered.filter(t => resolveUserKey(t.requester) === currentUser);
+    }
+
+    if (statusVal && statusVal !== "todos") {
+        filtered = filtered.filter(t => t.status === statusVal);
+    }
+
+    if (dateVal) {
+        filtered = filtered.filter(t => toLocalISODate(t.createdAt) === dateVal);
+    }
+
+    if (searchVal) {
+        filtered = filtered.filter(t =>
+            (t.cliente && t.cliente.toLowerCase().includes(searchVal)) ||
+            (t.tipo && t.tipo.toLowerCase().includes(searchVal)) ||
+            (t.accion && t.accion.toLowerCase().includes(searchVal)) ||
+            (t.requester && displayUser(t.requester).toLowerCase().includes(searchVal)) ||
+            (t.ticketNumber && t.ticketNumber.toLowerCase().includes(searchVal)) ||
+            (t.id && t.id.toString().includes(searchVal))
+        );
+    }
+
+    const sorted = filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    document.getElementById("requester-total").innerText = tickets.length;
+    document.getElementById("requester-pending").innerText = tickets.filter(t => t.status === "pendiente").length;
+    document.getElementById("requester-process").innerText = tickets.filter(t => t.status === "proceso").length;
+    document.getElementById("requester-completed").innerText = tickets.filter(t => t.status === "completada").length;
+    document.getElementById("requester-canceled").innerText = tickets.filter(t => t.status === "cancelada").length;
+
+    tbody.innerHTML = "";
+
+    if (!sorted.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="px-5 py-12 text-center text-sm text-slate-400">
+                    No se encontraron solicitudes para el criterio especificado.
+                </td>
+            </tr>`;
+        return;
+    }
+
+    sorted.forEach(t => {
+        const status = statusConfig(t.status);
+
+        const tr = document.createElement("tr");
+        tr.className = "border-b border-slate-100 request-row cursor-pointer";
+        tr.onclick = () => openDetailModal(t.id);
+
+        tr.innerHTML = `
+            <td class="px-5 py-4">
+                <div class="font-bold text-sm text-slate-800">Solicitud #${t.id}</div>
+                <div class="text-[11px] text-slate-400 mt-0.5">${formatDate(t.createdAt)}</div>
+            </td>
+            <td class="px-5 py-4">
+                <span class="inline-flex px-2 py-0.5 rounded text-[10px] uppercase font-bold ${priorityBadge(t.prioridad)}">
+                    ${escapeHtml(t.prioridad || "Normal")}
+                </span>
+            </td>
+            <td class="px-5 py-4">
+                <span class="inline-flex px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold">
+                    ${escapeHtml(t.tipo)}
+                </span>
+            </td>
+            <td class="px-5 py-4 text-sm text-slate-700 font-medium">${escapeHtml(t.cliente)}</td>
+            <td class="px-5 py-4 text-sm text-slate-600 font-semibold">${escapeHtml(t.requester ? displayUser(t.requester) : (t.reporta || "—"))}</td>
+            <td class="px-5 py-4 text-xs text-slate-500">${formatDateTime(t.createdAt)}</td>
+            <td class="px-5 py-4">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${status.badge}">
+                    <span class="status-dot ${status.dot}"></span>
+                    ${status.label}
+                </span>
+            </td>
+            <td class="px-5 py-4">
+                ${t.ticketNumber
+                    ? `<span class="font-bold text-emerald-700">${escapeHtml(t.ticketNumber)}</span>`
+                    : `<span class="text-xs text-slate-400">Pendiente</span>`}
+            </td>
+            <td class="px-5 py-4 text-right" onclick="event.stopPropagation()">
+                ${t.status !== "cancelada" && t.status !== "completada" ? `
+                    <button onclick="openCancelModal(${t.id})" title="Cancelar Solicitud" class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition">
+                        <i class="fa-solid fa-ban"></i>
+                    </button>
+                ` : '—'}
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+}
+
+
+/* =========================================================
+   VISTA GESTORA / KANBAN
+========================================================= */
+function renderKanban() {
+    const columns = ["pendiente", "proceso", "completada", "cancelada"];
+    const counts = { pendiente: 0, proceso: 0, completada: 0, cancelada: 0 };
+    const selectedDate = value("manager-filter-date");
+    const today = getTodayString();
+
+    const dateBadge = document.getElementById("manager-date-badge");
+    if (selectedDate) {
+        dateBadge.innerText = selectedDate === today
+            ? "Mostrando jornada activa de hoy"
+            : `Mostrando fecha específica: ${selectedDate}`;
+    } else {
+        dateBadge.innerText = "Mostrando órdenes acumuladas activas";
+    }
+
+    columns.forEach(col => {
+        const el = document.getElementById(`col-${col}`);
+        if (el) el.innerHTML = "";
+    });
+
+    const filteredKanban = tickets.filter(t => {
+        if (t.status === "pendiente" || t.status === "proceso") return true;
+        const day = ticketBoardDay(t);
+        return day === (selectedDate || today);
+    });
+
+    filteredKanban.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    filteredKanban.forEach(t => {
+        if (!counts.hasOwnProperty(t.status)) return;
+        counts[t.status]++;
+
+        const col = document.getElementById(`col-${t.status}`);
+        if (!col) return;
+
+        const card = document.createElement("div");
+        card.id = `ticket-${t.id}`;
+        card.setAttribute("draggable", "true");
+        card.className = "bg-white p-4 rounded-2xl shadow-sm border border-slate-200 cursor-grab hover:shadow-md transition active:cursor-grabbing";
+
+        card.addEventListener("dragstart", e => drag(e, t.id));
+        card.addEventListener("dragend", () => {
+            card.classList.remove("dragging");
+            draggedTicketId = null;
+            document.querySelectorAll(".kanban-col.drag-over").forEach(c => c.classList.remove("drag-over"));
+        });
+
+        const quickBtn =
+            t.status === "pendiente"
+                ? `<button onclick="event.stopPropagation(); moveTicket(${t.id}, 'proceso')" title="Pasar a En proceso" class="px-2 py-1 text-[11px] font-bold text-blue-600 hover:bg-blue-50 rounded-lg"><i class="fa-solid fa-play mr-1"></i>Iniciar</button>`
+            : t.status === "proceso"
+                ? `<button onclick="event.stopPropagation(); moveTicket(${t.id}, 'completada')" title="Completar" class="px-2 py-1 text-[11px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg"><i class="fa-solid fa-check mr-1"></i>Completar</button>`
+                : "";
+
+        card.innerHTML = `
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[11px] font-bold">
+                    <i class="fa-solid fa-tag text-[9px]"></i>
+                    ${escapeHtml(t.tipo)}
+                </span>
+                <span class="inline-flex px-2 py-0.5 rounded text-[10px] uppercase font-bold ${priorityBadge(t.prioridad)}">
+                    ${escapeHtml(t.prioridad || "Normal")}
+                </span>
+            </div>
+
+            <div class="mb-2 flex items-center justify-between">
+                <span class="text-[10px] font-bold text-slate-400">#${t.id}</span>
+                <span class="text-[10px] font-medium text-slate-400">${formatDate(t.createdAt)}</span>
+            </div>
+
+            <div class="mb-2">
+                <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Cliente</p>
+                <p class="font-bold text-sm text-slate-800 mt-0.5">${escapeHtml(t.cliente)}</p>
+            </div>
+
+            <div class="mb-2">
+                <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Solicitado Por</p>
+                <p class="text-xs font-semibold text-indigo-700 mt-0.5">${escapeHtml(t.requester ? displayUser(t.requester) : (t.reporta || "—"))}</p>
+            </div>
+
+            <div class="mb-3">
+                <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Acción</p>
+                <p class="text-xs text-slate-600 mt-0.5">${escapeHtml(t.accion || "—")}</p>
+            </div>
+
+            ${t.status === "proceso" ? `
+                <div class="mb-3 p-2.5 rounded-xl bg-blue-50 border border-blue-100">
+                    <p class="text-[10px] uppercase tracking-wider font-bold text-blue-500">Movido a proceso por</p>
+                    <p class="text-xs font-bold text-blue-800 mt-0.5">${escapeHtml(t.movedBy || "—")}</p>
+                </div>
+            ` : ""}
+
+            ${t.status === "completada" ? `
+                <div class="mb-3 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 space-y-2">
+                    <div>
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-600">No. ticket / orden</p>
+                        <p class="text-sm font-extrabold text-emerald-800 mt-0.5">${escapeHtml(t.ticketNumber || "—")}</p>
+                    </div>
+                    <div class="pt-2 border-t border-emerald-100">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-600">Completado por</p>
+                        <p class="text-xs font-bold text-emerald-800 mt-0.5">${escapeHtml(displayUser(t.completedBy || t.movedBy || "—"))}</p>
+                    </div>
+                </div>
+            ` : ""}
+
+            ${t.status === "cancelada" ? `
+                <div class="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-100">
+                    <p class="text-[10px] uppercase tracking-wider font-bold text-rose-600">Cancelado por: ${escapeHtml(t.canceledBy || "—")}</p>
+                    <p class="text-xs text-rose-800 mt-0.5">${escapeHtml(t.cancelReason || "Sin motivo registrado")}</p>
+                </div>
+            ` : ""}
+
+            <div class="flex items-center gap-1 border-t border-slate-100 pt-2 mt-1">
+                <button onclick="event.stopPropagation(); openDetailModal(${t.id})"
+                    class="flex-1 text-xs font-semibold text-slate-500 hover:text-indigo-600 py-1 text-center">
+                    <i class="fa-solid fa-eye mr-1"></i> Ver detalle
+                </button>
+                ${quickBtn}
+                ${t.status !== "cancelada" && t.status !== "completada" ? `
+                    <button onclick="event.stopPropagation(); openCancelModal(${t.id})" title="Cancelar" class="p-1 text-rose-500 hover:text-rose-700">
+                        <i class="fa-solid fa-ban text-xs"></i>
+                    </button>
+                ` : ''}
+            </div>
+        `;
+
+        card.addEventListener("dblclick", () => openDetailModal(t.id));
+        col.appendChild(card);
+    });
+
+    columns.forEach(col => {
+        const countEl = document.getElementById(`count-${col}`);
+        if (countEl) countEl.innerText = counts[col];
+    });
+
+    document.getElementById("manager-total").innerText = filteredKanban.length;
+    document.getElementById("manager-pending").innerText = counts.pendiente;
+    document.getElementById("manager-process").innerText = counts.proceso;
+    document.getElementById("manager-completed").innerText = counts.completada;
+    document.getElementById("manager-canceled").innerText = counts.cancelada;
+}
+
+
+/* =========================================================
+   HISTÓRICO
+========================================================= */
+function openHistoryModal() {
+    renderHistoryView();
+    document.getElementById("history-modal").classList.remove("hidden");
+    document.getElementById("history-modal").classList.add("flex");
+}
+
+function closeHistoryModal() {
+    document.getElementById("history-modal").classList.add("hidden");
+    document.getElementById("history-modal").classList.remove("flex");
+}
+
+function renderHistoryView() {
+    const tbody = document.getElementById("history-table-body");
+    const search = value("history-search").toLowerCase();
+    const dateVal = value("history-date");
+
+    let completeds = tickets.filter(t => t.status === "completada");
+
+    if (dateVal) {
+        completeds = completeds.filter(t => toLocalISODate(t.completedAt || t.createdAt) === dateVal);
+    }
+
+    if (search) {
+        completeds = completeds.filter(t =>
+            (t.cliente && t.cliente.toLowerCase().includes(search)) ||
+            (t.tipo && t.tipo.toLowerCase().includes(search)) ||
+            (t.ticketNumber && t.ticketNumber.toLowerCase().includes(search)) ||
+            (t.requester && displayUser(t.requester).toLowerCase().includes(search)) ||
+            (t.movedBy && displayUser(t.movedBy).toLowerCase().includes(search)) ||
+            (t.completedBy && displayUser(t.completedBy).toLowerCase().includes(search))
+        );
+    }
+
+    completeds.sort((a, b) => new Date(b.completedAt || b.createdAt) - new Date(a.completedAt || a.createdAt));
+
+    tbody.innerHTML = "";
+
+    if (!completeds.length) {
+        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-xs text-slate-400">No hay tickets completados en este archivo histórico.</td></tr>`;
+        return;
+    }
+
+    completeds.forEach(t => {
+        const tr = document.createElement("tr");
+        tr.className = "border-b border-slate-100 hover:bg-slate-50 text-xs";
+        tr.innerHTML = `
+            <td class="px-4 py-3 font-bold text-slate-800">#${t.id}<br><span class="font-normal text-[10px] text-slate-400">${formatDate(t.createdAt)}</span></td>
+            <td class="px-4 py-3 font-semibold text-indigo-700">${escapeHtml(t.tipo)}</td>
+            <td class="px-4 py-3 font-medium text-slate-700">${escapeHtml(t.cliente)}</td>
+            <td class="px-4 py-3 text-slate-600">${escapeHtml(t.requester ? displayUser(t.requester) : "—")}</td>
+            <td class="px-4 py-3">
+                <span class="font-bold text-blue-700">${escapeHtml(t.movedBy ? displayUser(t.movedBy) : "—")}</span>
+                ${t.movedAt ? `<br><span class="text-[10px] text-slate-400">${formatDateTime(t.movedAt)}</span>` : ""}
+            </td>
+            <td class="px-4 py-3">
+                <span class="font-bold text-emerald-700">${escapeHtml(t.completedBy ? displayUser(t.completedBy) : "—")}</span>
+                ${t.completedAt ? `<br><span class="text-[10px] text-slate-400">${formatDateTime(t.completedAt)}</span>` : ""}
+            </td>
+            <td class="px-4 py-3 font-extrabold text-emerald-700">${escapeHtml(t.ticketNumber || "—")}</td>
+            <td class="px-4 py-3 text-right">
+                <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 text-indigo-600 rounded-lg font-bold">Detalle</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+
+/* =========================================================
+   DRAG & DROP + MOVER TARJETAS
+========================================================= */
+function allowDrop(e) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+}
+
+function dragEnter(e) {
+    e.preventDefault();
+    const col = e.currentTarget;
+    if (col) col.classList.add("drag-over");
+}
+
+function dragLeave(e) {
+    const col = e.currentTarget;
+    if (col && !col.contains(e.relatedTarget)) col.classList.remove("drag-over");
+}
+
+function drag(e, id) {
+    draggedTicketId = id;
+    try {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", String(id));
+    } catch {}
+    const el = e.currentTarget;
+    if (el) setTimeout(() => el.classList.add("dragging"), 0);
+}
+
+function drop(e, newStatus) {
+    e.preventDefault();
+    document.querySelectorAll(".kanban-col.drag-over").forEach(c => c.classList.remove("drag-over"));
+
+    let id = parseInt(e.dataTransfer ? e.dataTransfer.getData("text/plain") : "");
+    if (!id) id = draggedTicketId;
+    draggedTicketId = null;
+    if (!id) return;
+
+    moveTicket(id, newStatus);
+}
+
+async function moveTicket(id, newStatus) {
+    if (!currentUser || USERS[currentUser].role !== "manager") return;
+
+    const ticket = tickets.find(t => t.id === id);
+    if (!ticket || ticket.status === newStatus) return;
+
+    if (newStatus === "completada") {
+        ticketBeingCompleted = ticket.id;
+        document.getElementById("completion-ticket-number").value = "";
+        document.getElementById("complete-modal").classList.remove("hidden");
+        document.getElementById("complete-modal").classList.add("flex");
+        return;
+    }
+
+    if (newStatus === "cancelada") {
+        openCancelModal(ticket.id);
+        return;
+    }
+
+    const backup = JSON.parse(JSON.stringify(ticket));
+    const previousStatus = ticket.status;
+    const movementAt = new Date().toISOString();
+
+    ticket.status = newStatus;
+    ticket.movedBy = currentUser;
+    ticket.movedAt = movementAt;
+
+    if (!Array.isArray(ticket.movementHistory)) ticket.movementHistory = [];
+    ticket.movementHistory.push({
+        fromStatus: previousStatus,
+        toStatus: newStatus,
+        movedBy: currentUser,
+        movedAt: movementAt
+    });
+
+    try {
+        await persistTicket(ticket);
+        notifyChange();
+    } catch (err) {
+        console.error("Error guardando cambio de estado:", err);
+        Object.assign(ticket, backup);
+        showCustomAlert("No se pudo guardar el cambio de estado. Intenta nuevamente.", "Error al Guardar", "error");
+    }
+    renderKanban();
+}
+
+
+/* =========================================================
+   CANCELACIÓN
+========================================================= */
+function openCancelModal(id) {
+    ticketBeingCanceled = id;
+    document.getElementById("cancel-reason").value = "";
+    document.getElementById("cancel-modal").classList.remove("hidden");
+    document.getElementById("cancel-modal").classList.add("flex");
+}
+
+function closeCancelModal() {
+    ticketBeingCanceled = null;
+    document.getElementById("cancel-modal").classList.add("hidden");
+    document.getElementById("cancel-modal").classList.remove("flex");
+}
+
+async function confirmCancelRequest() {
+    const reason = value("cancel-reason");
+    if (!reason) {
+        showCustomAlert("Debes ingresar el motivo de la cancelación.", "Motivo Requerido", "info");
+        return;
+    }
+
+    const ticket = tickets.find(t => t.id === ticketBeingCanceled);
+    if (!ticket) {
+        closeCancelModal();
+        return;
+    }
+
+    const backup = JSON.parse(JSON.stringify(ticket));
+    const previousStatus = ticket.status;
+    const canceledAt = new Date().toISOString();
+
+    ticket.status = "cancelada";
+    ticket.cancelReason = formatTitleCase(reason);
+    ticket.canceledBy = currentUser;
+    ticket.canceledAt = canceledAt;
+    ticket.movedBy = currentUser;
+    ticket.movedAt = canceledAt;
+
+    if (!Array.isArray(ticket.movementHistory)) ticket.movementHistory = [];
+    ticket.movementHistory.push({
+        fromStatus: previousStatus,
+        toStatus: "cancelada",
+        movedBy: currentUser,
+        movedAt: canceledAt,
+        action: "cancelacion"
+    });
+
+    try {
+        await persistTicket(ticket);
+        notifyChange();
+    } catch (err) {
+        console.error(err);
+        Object.assign(ticket, backup);
+        closeCancelModal();
+        renderCurrent();
+        showCustomAlert("No se pudo guardar la cancelación. Intenta nuevamente.", "Error al Guardar", "error");
+        return;
+    }
+
+    const id = ticket.id;
+    closeCancelModal();
+    renderCurrent();
+    showCustomAlert(`La solicitud #${id} ha sido cancelada correctamente.`, "Solicitud Cancelada", "info");
+}
+
+
+/* =========================================================
+   PASO A PASO Y CAMPOS DINÁMICOS
+========================================================= */
+function openRequestModal() {
+    if (!isRequester()) {
+        showCustomAlert("Este formulario está reservado para los ejecutivos y solicitantes.", "Acceso Restringido", "error");
+        return;
+    }
+
+    selectedOrderType = "";
+    document.getElementById("step1-tipo-orden").value = "";
+
+    const reportaInput = document.getElementById("f-reporta");
+    if (reportaInput) {
+        reportaInput.value = formatTitleCase(USERS[currentUser].name);
+    }
+
+    backToStep1();
+
+    document.getElementById("request-modal").classList.remove("hidden");
+    document.getElementById("request-modal").classList.add("flex");
+}
+
+function closeRequestModal() {
+    document.getElementById("request-modal").classList.add("hidden");
+    document.getElementById("request-modal").classList.remove("flex");
+}
+
+function backToStep1() {
+    document.getElementById("step-1-container").classList.remove("hidden");
+    document.getElementById("request-form").classList.add("hidden");
+
+    document.getElementById("modal-step-title").innerText = "Paso 1: Tipo de Solicitud";
+    document.getElementById("modal-step-subtitle").innerText = "Selecciona el tipo de orden para continuar con los datos requeridos.";
+}
+
+function goToStep2() {
+    const val = document.getElementById("step1-tipo-orden").value;
+    if (!val) {
+        showCustomAlert("Por favor selecciona un tipo de solicitud antes de continuar.", "Campo Requerido", "info");
+        return;
+    }
+
+    selectedOrderType = val;
+    document.getElementById("display-selected-type").innerText = selectedOrderType;
+
+    setupDynamicFields(selectedOrderType);
+
+    document.getElementById("step-1-container").classList.add("hidden");
+    document.getElementById("request-form").classList.remove("hidden");
+
+    document.getElementById("modal-step-title").innerText = "Paso 2: Datos del Requerimiento";
+    document.getElementById("modal-step-subtitle").innerText = "Completa la información específica para esta solicitud.";
+}
+
+function setupDynamicFields(type) {
+    const hiddenGroups = [
+        "grp-modelo-actual", "grp-serial-actual", "grp-modelo-nuevo", "grp-serial-nuevo",
+        "grp-recibe", "grp-fecha-recepcion", "grp-facturacion", "grp-tipo-mantenimiento",
+        "grp-usuarios-afectados", "grp-tipo-escaneo", "grp-cantidad-usuarios",
+        "grp-conectividad", "grp-incluye-instalacion", "grp-departamento",
+        "grp-ultima-reparacion", "grp-delivery"
+    ];
+
+    hiddenGroups.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
+    });
+
+    document.getElementById("lbl-modelo-nuevo").innerText = "Modelo del Equipo";
+    document.getElementById("lbl-serial-nuevo").innerText = "Serial del Equipo";
+
+    switch (type) {
+        case "SUPERVISIÓN TÉCNICA":
+            showField("grp-recibe");
+            showField("grp-fecha-recepcion");
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            break;
+
+        case "REPARACIÓN DE EQUIPO":
+            showField("grp-recibe");
+            showField("grp-fecha-recepcion");
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            showField("grp-ultima-reparacion");
+            break;
+
+        case "DIAGNÓSTICO EXTERNO CLIENTE":
+        case "RETIRO DE EQUIPO":
+        case "DEVOLUCIÓN DE EQUIPO":
+            showField("grp-recibe");
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            break;
+
+        case "LEVANTAMIENTO":
+            showField("grp-recibe");
+            break;
+
+        case "ENVÍO AL INTERIOR":
+            showField("grp-recibe");
+            showField("grp-fecha-recepcion");
+            showField("grp-conectividad");
+            break;
+
+        case "ENVÍO AL INTERIOR DEL PAÍS":
+            hideField("grp-recibe");
+            hideField("grp-fecha-recepcion");
+            break;
+
+        case "NUEVA INSTALACIÓN":
+            showField("grp-recibe");
+            showField("grp-modelo-actual");
+            showField("grp-serial-actual");
+            document.getElementById("grp-modelo-actual").querySelector('label').innerText = "Modelo a Instalar";
+            document.getElementById("grp-serial-actual").querySelector('label').innerText = "Serial a Instalar";
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            document.getElementById("lbl-modelo-nuevo").innerText = "Modelo del Equipo Anterior (si aplica)";
+            document.getElementById("lbl-serial-nuevo").innerText = "Serial del Equipo Anterior (si aplica)";
+
+            showField("grp-cantidad-usuarios");
+            showField("grp-conectividad");
+            showField("grp-incluye-instalacion");
+            showField("grp-departamento");
+            break;
+
+        case "CAMBIO DE EQUIPO":
+            showField("grp-recibe");
+            showField("grp-modelo-actual");
+            showField("grp-serial-actual");
+            document.getElementById("grp-modelo-actual").querySelector('label').innerText = "Modelo del Equipo Actual";
+            document.getElementById("grp-serial-actual").querySelector('label').innerText = "Serial del Equipo Actual";
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            document.getElementById("lbl-modelo-nuevo").innerText = "Modelo Por el que se Cambiará";
+            document.getElementById("lbl-serial-nuevo").innerText = "Serial del Equipo Nuevo/Cambio";
+
+            showField("grp-cantidad-usuarios");
+            showField("grp-conectividad");
+            showField("grp-departamento");
+            break;
+
+        case "SOPORTE TÉCNICO":
+            showField("grp-recibe");
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            showField("grp-usuarios-afectados");
+            showField("grp-conectividad");
+            showField("grp-departamento");
+            break;
+
+        case "SOPORTE REMOTO":
+            hideField("grp-recibe");
+            hideField("grp-fecha-recepcion");
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            showField("grp-usuarios-afectados");
+            showField("grp-conectividad");
+            showField("grp-tipo-escaneo");
+            showField("grp-cantidad-usuarios");
+            showField("grp-departamento");
+            break;
+
+        case "MANTENIMIENTO":
+            showField("grp-recibe");
+            showField("grp-modelo-nuevo");
+            showField("grp-serial-nuevo");
+            showField("grp-tipo-mantenimiento");
+            showField("grp-cantidad-usuarios");
+            showField("grp-conectividad");
+            showField("grp-departamento");
+            break;
+
+        case "MENSAJERÍA":
+            showField("grp-recibe");
+            showField("grp-facturacion");
+            break;
+
+        case "VENTA DIRECTA":
+            showField("grp-recibe");
+            showField("grp-delivery");
+            showField("grp-facturacion");
+            break;
+
+        default:
+            showField("grp-recibe");
+            break;
+    }
+}
+
+function showField(groupId) {
+    const el = document.getElementById(groupId);
+    if (el) el.classList.remove("hidden");
+}
+
+function hideField(groupId) {
+    const el = document.getElementById(groupId);
+    if (el) el.classList.add("hidden");
+}
+
+
+/* =========================================================
+   REGISTRO DE SOLICITUD
+========================================================= */
+async function handleCreateRequest(e) {
+    e.preventDefault();
+
+    if (!isRequester()) {
+        showCustomAlert("No tienes permiso para registrar solicitudes.", "Sin Autorización", "error");
+        return;
+    }
+
+    const requiereSerialStrict = [
+        "CAMBIO DE EQUIPO",
+        "DEVOLUCIÓN DE EQUIPO",
+        "DIAGNÓSTICO EXTERNO CLIENTE",
+        "MANTENIMIENTO",
+        "REPARACIÓN DE EQUIPO",
+        "SOPORTE REMOTO",
+        "SOPORTE TÉCNICO",
+        "SUPERVISIÓN TÉCNICA"
+    ];
+
+    const esObligatorioSerial = requiereSerialStrict.includes(selectedOrderType);
+
+    const modNuevo = value("f-modelo");
+    const serNuevo = value("f-serial");
+    const modActual = value("f-modelo-actual");
+    const serActual = value("f-serial-actual");
+
+    const faltanEquipos = (!modNuevo && !modActual) || (!serNuevo && !serActual);
+
+    if (esObligatorioSerial && faltanEquipos) {
+        showEquipmentConfirmModal(
+            () => { /* volver a completar */ },
+            () => { executeSaveRequest(); }
+        );
+    } else {
+        executeSaveRequest();
+    }
+}
+
+// Reduce el tamaño de la foto para que quepa sin problema en el almacenamiento
+function compressImage(file, maxSide = 1600, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            let w = img.naturalWidth, h = img.naturalHeight;
+            const scale = Math.min(1, maxSide / Math.max(w, h));
+            w = Math.max(1, Math.round(w * scale));
+            h = Math.max(1, Math.round(h * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            URL.revokeObjectURL(url);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            readFileAsDataURL(file).then(resolve, reject);
+        };
+        img.src = url;
+    });
+}
+
+async function executeSaveRequest() {
+    const submitBtn = document.getElementById("btn-submit-request");
+    if (submitBtn) {
+        if (submitBtn.disabled) return;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span>Guardando...</span> <i class="fa-solid fa-spinner fa-spin text-xs"></i>`;
+    }
+
+    try {
+        const fileInput = document.getElementById("f-evidencias");
+        const files = Array.from(fileInput ? fileInput.files : []);
+        const evidencias = [];
+
+        for (const file of files) {
+            try {
+                const dataUrl = await compressImage(file);
+                const baseName = file.name.replace(/\.[^.]+$/, "");
+                evidencias.push({ name: baseName + ".jpg", data: dataUrl });
+            } catch (err) {
+                console.error("Error leyendo imagen:", err);
+            }
+        }
+
+        // Releer para obtener un ID único aunque otro usuario haya creado tickets
+        await reloadTickets();
+        const newId = tickets.length ? Math.max(...tickets.map(t => Number(t.id))) + 1 : 1;
+
+        const reportaNombre = formatTitleCase(value("f-reporta") || USERS[currentUser].name);
+        const checkDelivery = document.getElementById("f-delivery");
+
+        const newTicket = {
+            id: newId,
+            createdAt: new Date().toISOString(),
+            status: "pendiente",
+            tipo: selectedOrderType,
+            accion: formatTitleCase(value("f-accion")),
+
+            cliente: formatTitleCase(value("f-cliente")),
+            prioridad: value("f-prioridad") || "Normal",
+            recibe: formatTitleCase(value("f-recibe")),
+            contacto: value("f-contacto"),
+            fechaRecepcion: value("f-fecha-recepcion"),
+            reporta: reportaNombre,
+            requester: currentUser,
+
+            modeloActual: value("f-modelo-actual").toUpperCase(),
+            serialActual: value("f-serial-actual").toUpperCase(),
+            modeloNuevo: value("f-modelo").toUpperCase(),
+            serialNuevo: value("f-serial").toUpperCase(),
+
+            facturacion: value("f-facturacion"),
+            tipoMantenimiento: value("f-tipo-mantenimiento"),
+            usuariosAfectados: value("f-usuarios-afectados"),
+            escaneo: value("f-escaneo"),
+            cantidadUsuarios: value("f-cantidad-usuarios"),
+            conectividad: value("f-conectividad"),
+            incluyeInstalacion: value("f-incluye-instalacion"),
+            departamento: formatTitleCase(value("f-departamento")),
+            ultimaReparacion: value("f-ultima-reparacion"),
+            delivery: checkDelivery ? checkDelivery.checked : false,
+
+            notas: value("f-notas"),
+            evidencias,
+
+            movedBy: "",
+            movedAt: "",
+            movementHistory: [],
+            ticketNumber: "",
+            completedBy: "",
+            completedAt: "",
+            cancelReason: "",
+            canceledBy: "",
+            canceledAt: ""
+        };
+
+        // Primero se guarda; solo si se guardó bien se agrega a la lista
+        await persistTicket(newTicket);
+        tickets.push(newTicket);
+        notifyChange();
+
+        document.getElementById("request-form").reset();
+        closeRequestModal();
+        renderCurrent();
+
+        showCustomAlert(`La solicitud #${newId} (${selectedOrderType}) se ha registrado perfectamente y pasó a la bandeja de pendientes.`, "¡Solicitud Creada Con Éxito!", "success");
+
+    } catch (error) {
+        console.error("Error al guardar ticket:", error);
+        showCustomAlert("No se pudo guardar la solicitud (posible falta de espacio de almacenamiento). No se creó ningún registro; prueba con menos imágenes o más livianas.", "Error al Guardar", "error");
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<span>Registrar solicitud</span>`;
+        }
+    }
+}
+
+
+/* =========================================================
+   COMPLETAR SOLICITUD
+========================================================= */
+function closeCompleteModal() {
+    ticketBeingCompleted = null;
+    document.getElementById("complete-modal").classList.add("hidden");
+    document.getElementById("complete-modal").classList.remove("flex");
+}
+
+async function confirmComplete() {
+    if (!isManager()) return;
+
+    const number = document.getElementById("completion-ticket-number").value.trim().toUpperCase();
+
+    if (!number) {
+        showCustomAlert("Debes ingresar el número de ticket/orden.", "Campo Requerido", "info");
+        return;
+    }
+
+    const ticket = tickets.find(t => t.id === ticketBeingCompleted);
+
+    if (!ticket) {
+        closeCompleteModal();
+        return;
+    }
+
+    const backup = JSON.parse(JSON.stringify(ticket));
+    const previousStatus = ticket.status;
+    const completedAt = new Date().toISOString();
+
+    ticket.status = "completada";
+    ticket.ticketNumber = number;
+    ticket.completedBy = currentUser;
+    ticket.completedAt = completedAt;
+    ticket.movedBy = currentUser;
+    ticket.movedAt = completedAt;
+
+    if (!Array.isArray(ticket.movementHistory)) ticket.movementHistory = [];
+    ticket.movementHistory.push({
+        fromStatus: previousStatus,
+        toStatus: "completada",
+        movedBy: currentUser,
+        movedAt: completedAt,
+        action: "completado"
+    });
+
+    try {
+        await persistTicket(ticket);
+        notifyChange();
+    } catch (err) {
+        console.error(err);
+        Object.assign(ticket, backup);
+        closeCompleteModal();
+        renderKanban();
+        showCustomAlert("No se pudo guardar la finalización. Intenta nuevamente.", "Error al Guardar", "error");
+        return;
+    }
+
+    const id = ticket.id;
+    closeCompleteModal();
+    renderKanban();
+
+    showCustomAlert(`Solicitud #${id} marcada como completada.\nTicket/Orden: ${number}`, "Solicitud Finalizada", "success");
+}
+
+
+/* =========================================================
+   DETALLE + EVIDENCIAS (VISOR INTERNO Y DESCARGA)
+========================================================= */
+function openDetailModal(id) {
+    const ticket = tickets.find(t => t.id === id);
+    if (!ticket) return;
+
+    const status = statusConfig(ticket.status);
+
+    document.getElementById("detail-kicker").innerText =
+        `Solicitud #${ticket.id} · ${status.label}`;
+
+    document.getElementById("detail-title").innerText =
+        `${ticket.tipo} · ${ticket.cliente}`;
+
+    let galeriaHtml = "";
+    if (ticket.evidencias && ticket.evidencias.length > 0) {
+        galeriaHtml = `
+            <div>
+                <p class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2">
+                    Evidencias Adjuntas (${ticket.evidencias.length}) · clic para ampliar
+                </p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    ${ticket.evidencias.map((ev, i) => `
+                        <div class="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center">
+                            <button type="button" onclick="openLightbox(${ticket.id}, ${i})" title="Ver imagen" class="block w-full">
+                                <img src="${ev.data}" class="h-28 w-full object-cover rounded-lg mb-1 hover:opacity-90 transition">
+                            </button>
+                            <p class="text-[10px] text-slate-500 truncate">${escapeHtml(ev.name)}</p>
+                            <button type="button" onclick="downloadEvidence(${ticket.id}, ${i})" class="mt-1 text-[11px] font-bold text-indigo-600 hover:underline">
+                                <i class="fa-solid fa-download mr-1"></i>Descargar
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+    } else {
+        galeriaHtml = `<p class="text-xs text-slate-400 italic">No se adjuntaron evidencias.</p>`;
+    }
+
+    document.getElementById("detail-body").innerHTML = `
+        <div class="flex flex-wrap items-center gap-2 mb-5">
+            <span class="px-2.5 py-1 rounded-lg ${status.badge}">
+                <span class="status-dot ${status.dot} mr-1"></span>${status.label}
+            </span>
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold ${priorityBadge(ticket.prioridad)}">
+                Prioridad: ${escapeHtml(ticket.prioridad || "Normal")}
+            </span>
+            ${ticket.ticketNumber
+                ? `<span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold">
+                     Ticket/Orden: ${escapeHtml(ticket.ticketNumber)}
+                   </span>`
+                : ""}
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+            ${detailItem("Tipo de Acción", ticket.accion)}
+            ${detailItem("Prioridad", ticket.prioridad)}
+            ${detailItem("Cliente", ticket.cliente)}
+            ${detailItem("Contacto", ticket.contacto)}
+            ${detailItem("Recibe en sucursal", ticket.recibe)}
+            ${ticket.fechaRecepcion ? detailItem("Fecha recepción", ticket.fechaRecepcion) : ""}
+            ${detailItem("Usuario que reporta", ticket.reporta)}
+            ${detailItem("Solicitado por", displayUser(ticket.requester))}
+
+            ${ticket.modeloActual ? detailItem("Modelo Actual / Retiro", ticket.modeloActual) : ""}
+            ${ticket.serialActual ? detailItem("Serial Actual / Retiro", ticket.serialActual) : ""}
+            ${ticket.modeloNuevo ? detailItem("Modelo del Equipo", ticket.modeloNuevo) : ""}
+            ${ticket.serialNuevo ? detailItem("Serial del Equipo", ticket.serialNuevo) : ""}
+
+            ${ticket.facturacion ? detailItem("Tipo de Facturación", ticket.facturacion) : ""}
+            ${ticket.tipoMantenimiento ? detailItem("Mantenimiento", ticket.tipoMantenimiento) : ""}
+            ${ticket.usuariosAfectados ? detailItem("Usuarios Afectados", ticket.usuariosAfectados) : ""}
+            ${ticket.escaneo ? detailItem("Tipo de Escaneo", ticket.escaneo) : ""}
+            ${ticket.cantidadUsuarios ? detailItem("Cantidad de Usuarios", ticket.cantidadUsuarios) : ""}
+            ${ticket.conectividad ? detailItem("Conectividad", ticket.conectividad) : ""}
+            ${ticket.incluyeInstalacion ? detailItem("Incluye Instalación", ticket.incluyeInstalacion) : ""}
+            ${ticket.departamento ? detailItem("Departamento", ticket.departamento) : ""}
+            ${ticket.ultimaReparacion ? detailItem("Última Reparación", ticket.ultimaReparacion) : ""}
+            ${ticket.delivery ? detailItem("Delivery", "Sí incluido") : ""}
+
+            ${ticket.movedBy ? detailItem("Último movimiento por", displayUser(ticket.movedBy)) : ""}
+            ${ticket.movedAt ? detailItem("Fecha del último movimiento", formatDateTime(ticket.movedAt)) : ""}
+            ${ticket.status === "completada" ? detailItem("Completado por", displayUser(ticket.completedBy || ticket.movedBy)) : ""}
+            ${ticket.completedAt ? detailItem("Fecha de completado", formatDateTime(ticket.completedAt)) : ""}
+            ${ticket.status === "cancelada" ? detailItem("Cancelado / eliminado por", displayUser(ticket.canceledBy)) : ""}
+            ${ticket.status === "cancelada" ? detailItem("Fecha de cancelación / eliminación", formatDateTime(ticket.canceledAt)) : ""}
+            ${ticket.status === "cancelada" ? detailItem("Motivo Cancelación", ticket.cancelReason) : ""}
+        </div>
+
+        ${Array.isArray(ticket.movementHistory) && ticket.movementHistory.length ? `
+            <div class="mb-5">
+                <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-2">Historial de movimientos</p>
+                <div class="space-y-2">
+                    ${ticket.movementHistory.slice().reverse().map(m => `
+                        <div class="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
+                            <div class="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-indigo-600 shrink-0">
+                                <i class="fa-solid fa-arrow-right-arrow-left text-[10px]"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-xs font-bold text-slate-700">
+                                    ${escapeHtml(m.fromStatus || "—")} → ${escapeHtml(m.toStatus || "—")}
+                                </p>
+                                <p class="text-[11px] text-slate-500 mt-0.5">
+                                    Movido por <b>${escapeHtml(displayUser(m.movedBy || "—"))}</b>
+                                    ${m.movedAt ? ` · ${formatDateTime(m.movedAt)}` : ""}
+                                </p>
+                            </div>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        ` : ""}
+
+        <div class="space-y-4">
+            ${textDetail("Notas / Observaciones", ticket.notas)}
+            ${galeriaHtml}
+        </div>
+    `;
+
+    document.getElementById("detail-modal").classList.remove("hidden");
+    document.getElementById("detail-modal").classList.add("flex");
+}
+
+function closeDetailModal() {
+    document.getElementById("detail-modal").classList.add("hidden");
+    document.getElementById("detail-modal").classList.remove("flex");
+}
+
+function detailItem(label, valueText) {
+    if (!valueText) return "";
+    return `
+        <div class="bg-slate-50 rounded-xl p-3">
+            <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">${escapeHtml(label)}</p>
+            <p class="text-sm font-semibold text-slate-700 mt-0.5">${escapeHtml(String(valueText))}</p>
+        </div>`;
+}
+
+function textDetail(label, valueText) {
+    return `
+        <div>
+            <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">${escapeHtml(label)}</p>
+            <div class="bg-slate-50 border border-slate-100 rounded-xl p-3 text-sm text-slate-700 whitespace-pre-wrap">
+                ${escapeHtml(String(valueText || "Sin observaciones."))}
+            </div>
+        </div>`;
+}
+
+/* ---------- Visor interno de imágenes ---------- */
+function isLightboxOpen() {
+    return !document.getElementById("lightbox-modal").classList.contains("hidden");
+}
+
+function openLightbox(ticketId, index) {
+    const t = tickets.find(x => x.id === ticketId);
+    if (!t || !t.evidencias || !t.evidencias[index]) return;
+    lbTicketId = ticketId;
+    lbIndex = index;
+    renderLightbox();
+    const m = document.getElementById("lightbox-modal");
+    m.classList.remove("hidden");
+    m.classList.add("flex");
+}
+
+function renderLightbox() {
+    const t = tickets.find(x => x.id === lbTicketId);
+    if (!t || !t.evidencias) return closeLightbox();
+    const ev = t.evidencias[lbIndex];
+    if (!ev) return closeLightbox();
+    document.getElementById("lb-img").src = ev.data;
+    document.getElementById("lb-name").innerText = ev.name || "Evidencia";
+    document.getElementById("lb-counter").innerText = `${lbIndex + 1} / ${t.evidencias.length} · Solicitud #${t.id}`;
+    const multi = t.evidencias.length > 1;
+    document.getElementById("lb-prev").style.display = multi ? "" : "none";
+    document.getElementById("lb-next").style.display = multi ? "" : "none";
+}
+
+function lightboxStep(delta) {
+    const t = tickets.find(x => x.id === lbTicketId);
+    if (!t || !t.evidencias || !t.evidencias.length) return;
+    lbIndex = (lbIndex + delta + t.evidencias.length) % t.evidencias.length;
+    renderLightbox();
+}
+
+function closeLightbox() {
+    const m = document.getElementById("lightbox-modal");
+    m.classList.add("hidden");
+    m.classList.remove("flex");
+    document.getElementById("lb-img").src = "";
+}
+
+async function downloadEvidence(ticketId, index) {
+    const t = tickets.find(x => x.id === ticketId);
+    const ev = t && t.evidencias && t.evidencias[index];
+    if (!ev) return;
+    try {
+        const blob = await (await fetch(ev.data)).blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = ev.name || `evidencia-${ticketId}-${index + 1}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err) {
+        console.error(err);
+        showCustomAlert("No se pudo descargar la imagen.", "Error", "error");
+    }
+}
+
+function downloadCurrentEvidence() {
+    downloadEvidence(lbTicketId, lbIndex);
+}
+
+
+/* =========================================================
+   HELPERS GENERALES
+========================================================= */
+function value(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : "";
+}
+
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function formatDate(dateString) {
+    return new Intl.DateTimeFormat("es-DO", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+    }).format(new Date(dateString));
+}
+
+function formatDateTime(dateString) {
+    return new Intl.DateTimeFormat("es-DO", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+    }).format(new Date(dateString));
+}
+
+function statusConfig(status) {
+    const configs = {
+        pendiente:  { label: "Pendiente",  badge: "bg-amber-50 text-amber-700",     dot: "bg-amber-500" },
+        proceso:    { label: "En proceso", badge: "bg-blue-50 text-blue-700",       dot: "bg-blue-500" },
+        completada: { label: "Completada", badge: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
+        cancelada:  { label: "Cancelada",  badge: "bg-rose-50 text-rose-700",       dot: "bg-rose-500" }
+    };
+    return configs[status] || configs.pendiente;
+}
+
+function escapeHtml(text) {
+    return String(text == null ? "" : text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+    try {
+        await initStorage();
+    } catch (err) {
+        console.error("Error inicializando almacenamiento:", err);
+    }
+    checkActiveSession();
+
+    document.addEventListener("keydown", e => {
+        if (isLightboxOpen()) {
+            if (e.key === "Escape") closeLightbox();
+            else if (e.key === "ArrowLeft") lightboxStep(-1);
+            else if (e.key === "ArrowRight") lightboxStep(1);
+            return;
+        }
+        if (e.key !== "Escape") return;
+        closeRequestModal();
+        closeDetailModal();
+        closeCompleteModal();
+        closeCustomAlert();
+        closeCancelModal();
+        closePasswordModal();
+        closeHistoryModal();
+    });
+});
+</script>
+
+</body>
+</html>
