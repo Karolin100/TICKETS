@@ -891,8 +891,32 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
+
+    const SUPABASE_URL = "https://chngzypafuertkimdgsw.supabase.co/rest/v1/";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_S_bZCN_x_5RknXCLOnEeew_2P_USwJs";
+
+const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+);
+
+async function testSupabaseConnection() {
+    const { data, error } = await supabaseClient
+        .from("solicitudes")
+        .select("id")
+        .limit(1);
+
+    if (error) {
+        console.error("Error conectando con Supabase:", error);
+        return false;
+    }
+
+    console.log("Supabase conectado correctamente:", data);
+    return true;
+}
 /* =========================================================
    CONFIGURACIÓN DE USUARIOS / PERMISOS
 ========================================================= */
@@ -907,6 +931,7 @@
    ##  - Para QUITAR a alguien: borra su línea (o ponle // delante).
    ##  - Para AGREGAR a alguien: copia una línea y cambia el nombre.
    ######################################################################### */
+
 
 /* >>> CAC: PUEDEN CREAR Y GESTIONAR TICKETS (usuario = CAC.Nombre) <<< */
 const CAC_USERS = [
@@ -1042,6 +1067,8 @@ let ticketBeingCanceled = null;
 let selectedOrderType = "";
 let filterOnlyMine = false;
 let tickets = [];
+
+testSupabaseConnection();
 
 let dbRef = null;          // conexión IndexedDB (null = modo respaldo localStorage)
 let channel = null;        // sincroniza pestañas / usuarios en el mismo navegador
@@ -2669,6 +2696,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         closeHistoryModal();
     });
 });
+
 </script>
 
 </body>
