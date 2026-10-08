@@ -42,6 +42,19 @@
             border-radius: 12px;
         }
         .request-row:hover { background: #f8fafc; }
+        /* Tabla de solicitudes con alto fijo: el scroll es interno y el encabezado se queda arriba */
+        .requester-table-wrap {
+            height: calc(100vh - 480px);
+            min-height: 340px;
+            overflow: auto;
+        }
+        .requester-table-wrap thead th {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: #f8fafc;
+            box-shadow: 0 1px 0 #e2e8f0;
+        }
         .modal-scroll { max-height: calc(100vh - 100px); overflow-y: auto; }
         .dragging { opacity: .45; transform: rotate(1deg); }
         .status-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
@@ -263,8 +276,8 @@
                     <i class="fa-solid fa-list-check text-slate-300"></i>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full min-w-[950px]">
+                <div class="requester-table-wrap">
+                    <table class="w-full min-w-[1100px]">
                         <thead class="bg-slate-50 border-b border-slate-200">
                             <tr class="text-left">
                                 <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Solicitud</th>
@@ -274,6 +287,7 @@
                                 <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Solicitado por</th>
                                 <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Fecha / hora</th>
                                 <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Estatus</th>
+                                <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">Atendido por (CAC)</th>
                                 <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">No. Ticket</th>
                                 <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-right">Acciones</th>
                             </tr>
@@ -1443,6 +1457,30 @@ function formatTitleCase(str) {
     }).join(' ');
 }
 
+// Quién del CAC tiene / completó / canceló el ticket (en pendiente no hay nadie aún)
+function handlerInfo(t) {
+    if (t.status === "proceso" && t.movedBy) {
+        return { label: "En proceso por", name: displayUser(t.movedBy), at: t.movedAt, cls: "text-blue-700" };
+    }
+    if (t.status === "completada") {
+        const who = t.completedBy || t.movedBy;
+        if (who) return { label: "Completó", name: displayUser(who), at: t.completedAt, cls: "text-emerald-700" };
+    }
+    if (t.status === "cancelada") {
+        const who = t.canceledBy || t.movedBy;
+        if (who) return { label: "Canceló", name: displayUser(who), at: t.canceledAt, cls: "text-rose-700" };
+    }
+    return null;
+}
+
+function handlerCell(t) {
+    const h = handlerInfo(t);
+    if (!h) return `<span class="text-xs text-slate-300">—</span>`;
+    return `<div class="text-[10px] uppercase tracking-wider font-bold text-slate-400">${h.label}</div>
+            <div class="text-sm font-bold ${h.cls}">${escapeHtml(h.name)}</div>
+            ${h.at ? `<div class="text-[10px] text-slate-400">${formatDateTime(h.at)}</div>` : ""}`;
+}
+
 function priorityBadge(priority) {
     if (priority === "INMEDIATO") {
         return "bg-rose-100 text-rose-800 font-extrabold border border-rose-200";
@@ -1709,7 +1747,7 @@ function renderRequesterView() {
     if (!sorted.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" class="px-5 py-12 text-center text-sm text-slate-400">
+                <td colspan="10" class="px-5 py-12 text-center text-sm text-slate-400">
                     No se encontraron solicitudes para el criterio especificado.
                 </td>
             </tr>`;
@@ -1747,6 +1785,7 @@ function renderRequesterView() {
                     ${status.label}
                 </span>
             </td>
+            <td class="px-5 py-4">${handlerCell(t)}</td>
             <td class="px-5 py-4">
                 ${t.ticketNumber
                     ? `<span class="font-bold text-emerald-700">${escapeHtml(t.ticketNumber)}</span>`
