@@ -1123,7 +1123,145 @@ async function loadAllTickets() {
 }
 
 async function persistTicket(ticket) {
-    console.log("🔥 PERSIST TICKET SE ESTÁ EJECUTANDO", ticket);
+
+    console.log("🔥 PERSIST TICKET:", ticket);
+
+    const estadoSupabase =
+        ticket.status === "proceso"
+            ? "En proceso"
+            : ticket.status === "completada"
+                ? "Completada"
+                : ticket.status === "cancelada"
+                    ? "Cancelada"
+                    : "Pendiente";
+
+    const datosActualizados = {
+        requester: ticket.requester || "",
+        reporta: ticket.reporta || "",
+        contacto: ticket.contacto || "",
+
+        tipo: ticket.tipo || "",
+        accion: ticket.accion || "",
+
+        cliente: ticket.cliente || "",
+        prioridad: ticket.prioridad || "Normal",
+        recibe: ticket.recibe || "",
+        fechaRecepcion: ticket.fechaRecepcion || "",
+
+        modeloActual: ticket.modeloActual || "",
+        serialActual: ticket.serialActual || "",
+        modeloNuevo: ticket.modeloNuevo || "",
+        serialNuevo: ticket.serialNuevo || "",
+
+        facturacion: ticket.facturacion || "",
+        tipoMantenimiento: ticket.tipoMantenimiento || "",
+        usuariosAfectados: ticket.usuariosAfectados || "",
+        escaneo: ticket.escaneo || "",
+        cantidadUsuarios: ticket.cantidadUsuarios || "",
+        conectividad: ticket.conectividad || "",
+        incluyeInstalacion: ticket.incluyeInstalacion || "",
+        departamento: ticket.departamento || "",
+        ultimaReparacion: ticket.ultimaReparacion || "",
+        delivery: ticket.delivery || false,
+
+        notas: ticket.notas || "",
+        evidencias: ticket.evidencias || [],
+
+        movedBy: ticket.movedBy || "",
+        movedAt: ticket.movedAt || "",
+
+        movementHistory: ticket.movementHistory || [],
+
+        ticketNumber: ticket.ticketNumber || "",
+
+        completedBy: ticket.completedBy || "",
+        completedAt: ticket.completedAt || "",
+
+        cancelReason: ticket.cancelReason || "",
+        canceledBy: ticket.canceledBy || "",
+        canceledAt: ticket.canceledAt || ""
+    };
+
+
+    // =========================================================
+    // 1. GUARDAR / ACTUALIZAR EN INDEXEDDB
+    // =========================================================
+
+    if (dbRef) {
+        await dbPut(ticket);
+        console.log("✅ Ticket actualizado en IndexedDB:", ticket.id);
+    } else {
+        try {
+            localStorage.setItem(
+                FALLBACK_KEY,
+                JSON.stringify(tickets)
+            );
+
+            console.log("✅ Tickets actualizados en localStorage");
+        } catch (err) {
+            console.error("❌ Error guardando localmente:", err);
+            throw err;
+        }
+    }
+
+
+    // =========================================================
+    // 2. BUSCAR SI YA EXISTE EN SUPABASE
+    // =========================================================
+
+    const { data: existingRows, error: searchError } =
+        await supabaseClient
+            .from("solicitudes")
+            .select("id")
+            .eq("numero_solicitud", String(ticket.id))
+            .order("created_at", { ascending: false })
+            .limit(1);
+
+    if (searchError) {
+        console.error("❌ Error buscando solicitud en Supabase:", searchError);
+        throw searchError;
+    }
+
+
+    // =========================================================
+    // 3. SI YA EXISTE → UPDATE
+    // =========================================================
+
+    if (existingRows && existingRows.length > 0) {
+
+        const dbId = existingRows[0].id;
+
+        const { data, error } = await supabaseClient
+            .from("solicitudes")
+            .update({
+                tipo_solicitud: ticket.tipo || "Sin especificar",
+                cliente: ticket.cliente || "",
+                solicitado_por: ticket.reporta || ticket.requester || "",
+                fecha_solicitud: ticket.createdAt || new Date().toISOString(),
+                prioridad: ticket.prioridad || "Normal",
+                estado: estadoSupabase,
+                numero_ticket: ticket.ticketNumber || null,
+                datos: datosActualizados,
+                updated_at: new Date().toISOString()
+            })
+            .eq("id", dbId)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("❌ Error actualizando solicitud en Supabase:", error);
+            throw error;
+        }
+
+        console.log("✅ SOLICITUD ACTUALIZADA EN SUPABASE:", data);
+
+        return data;
+    }
+
+
+    // =========================================================
+    // 4. SI NO EXISTE → INSERTAR NUEVA
+    // =========================================================
 
     const { data, error } = await supabaseClient
         .from("solicitudes")
@@ -1133,33 +1271,23 @@ async function persistTicket(ticket) {
             cliente: ticket.cliente || "",
             solicitado_por: ticket.reporta || ticket.requester || "",
             fecha_solicitud: ticket.createdAt || new Date().toISOString(),
-            prioridad: "Normal",
-            estado: ticket.status === "proceso"
-                ? "En proceso"
-                : ticket.status === "completada"
-                    ? "Completada"
-                    : "Pendiente",
+            prioridad: ticket.prioridad || "Normal",
+            estado: estadoSupabase,
             numero_ticket: ticket.ticketNumber || null,
-
-            datos: {
-                requester: ticket.requester || "",
-                contacto: ticket.contacto || "",
-                modelo: ticket.modelo || "",
-                serial: ticket.serial || "",
-                requerimiento: ticket.requerimiento || "",
-                sucursal: ticket.sucursal || "",
-                usuarios: ticket.usuarios || "",
-                conectividad: ticket.conectividad || "",
-                escaneo: ticket.escaneo || "",
-                diagnostico: ticket.diagnostico || "",
-                evidenceName: ticket.evidenceName || "",
-                evidenceData: ticket.evidenceData || "",
-                movedBy: ticket.movedBy || "",
-                movedAt: ticket.movedAt || ""
-            }
+            datos: datosActualizados
         })
         .select()
         .single();
+
+    if (error) {
+        console.error("❌ Error creando solicitud en Supabase:", error);
+        throw error;
+    }
+
+    console.log("✅ SOLICITUD CREADA EN SUPABASE:", data);
+
+    return data;
+}
 
     if (error) {
         console.error("Error guardando solicitud en Supabase:", error);
