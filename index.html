@@ -1113,16 +1113,60 @@ function dbPut(ticket) {
     });
 }
 
-async function loadAllTickets() {
-    if (dbRef) return await dbGetAll();
-    try {
-        return JSON.parse(localStorage.getItem(FALLBACK_KEY) || "[]");
-    } catch {
-        return [];
-    }
+function estadoToStatus(estado) {
+    const e = (estado || "").toString().toLowerCase();
+    if (e.includes("proceso")) return "proceso";
+    if (e.includes("complet")) return "completada";
+    if (e.includes("cancel")) return "cancelada";
+    return "pendiente";
 }
 
-async function persistTicket(ticket) {
+function rowToTicket(row) {
+    const d = row.datos || {};
+    return {
+        ...d,
+        id: Number(row.numero_solicitud),
+        createdAt: d.createdAt || row.fecha_solicitud || row.created_at,
+        status: estadoToStatus(row.estado),
+        tipo: row.tipo_solicitud || d.tipo || "",
+        cliente: row.cliente || d.cliente || "",
+        prioridad: row.prioridad || d.prioridad || "Normal",
+        ticketNumber: row.numero_ticket || d.ticketNumber || "",
+        evidencias: Array.isArray(d.evidencias) ? d.evidencias : [],
+        movementHistory: Array.isArray(d.movementHistory) ? d.movementHistory : []
+    };
+}
+
+function errMsg(err) {
+    if (!err) return "";
+    return (err.message || err.details || String(err)).toString();
+}
+
+// Supabase es la fuente de verdad: todos los usuarios ven los mismos tickets
+async function loadAllTickets() {
+    const { data, error } = await supabaseClient
+        .from("solicitudes")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        console.error("❌ Error leyendo solicitudes de Supabase:", error);
+        throw error;
+    }
+
+    const seen = new Set();
+    const result = [];
+    for (const row of data || []) {
+        const key = String(row.numero_solicitud);
+        if (seen.has(key)) continue;          // si hay duplicados, queda el más reciente
+        seen.add(key);
+        if (isNaN(Number(row.numero_solicitud))) continue;
+        result.push(rowToTicket(row));
+    }
+    return result;
+}
+
+async function persistTicket(ticket, isNew = false) {
 
     console.log("🔥 PERSIST TICKET:", ticket);
 
@@ -1167,6 +1211,8 @@ async function persistTicket(ticket) {
         notas: ticket.notas || "",
         evidencias: ticket.evidencias || [],
 
+        createdAt: ticket.createdAt || "",
+
         movedBy: ticket.movedBy || "",
         movedAt: ticket.movedAt || "",
 
@@ -1183,39 +1229,26 @@ async function persistTicket(ticket) {
     };
 
 
-    // =========================================================
-    // 1. GUARDAR / ACTUALIZAR EN INDEXEDDB
-    // =========================================================
-
-    if (dbRef) {
-        await dbPut(ticket);
-        console.log("✅ Ticket actualizado en IndexedDB:", ticket.id);
-    } else {
-        try {
-            localStorage.setItem(
-                FALLBACK_KEY,
-                JSON.stringify(tickets)
-            );
-
-            console.log("✅ Tickets actualizados en localStorage");
-        } catch (err) {
-            console.error("❌ Error guardando localmente:", err);
-            throw err;
-        }
-    }
+    // Copia local opcional (si falla, no afecta el guardado real)
+    try { if (dbRef) await dbPut(ticket); } catch (e) { console.warn("Copia local no guardada:", e); }
 
 
     // =========================================================
     // 2. BUSCAR SI YA EXISTE EN SUPABASE
     // =========================================================
 
-    const { data: existingRows, error: searchError } =
-        await supabaseClient
+    let existingRows = [];
+    let searchError = null;
+    if (!isNew) {
+        const r = await supabaseClient
             .from("solicitudes")
             .select("id")
             .eq("numero_solicitud", String(ticket.id))
             .order("created_at", { ascending: false })
             .limit(1);
+        existingRows = r.data || [];
+        searchError = r.error;
+    }
 
     if (searchError) {
         console.error("❌ Error buscando solicitud en Supabase:", searchError);
@@ -1231,7 +1264,7 @@ async function persistTicket(ticket) {
 
         const dbId = existingRows[0].id;
 
-        const { data, error } = await supabaseClient
+        const { data: updRows, error } = await supabaseClient
             .from("solicitudes")
             .update({
                 tipo_solicitud: ticket.tipo || "Sin especificar",
@@ -1245,17 +1278,22 @@ async function persistTicket(ticket) {
                 updated_at: new Date().toISOString()
             })
             .eq("id", dbId)
-            .select()
-            .single();
+            .select();
 
         if (error) {
             console.error("❌ Error actualizando solicitud en Supabase:", error);
             throw error;
         }
 
-        console.log("✅ SOLICITUD ACTUALIZADA EN SUPABASE:", data);
+        if (!updRows || !updRows.length) {
+            const e = new Error("Supabase no permitió actualizar la solicitud (falta la política UPDATE en la tabla 'solicitudes').");
+            console.error("❌", e.message);
+            throw e;
+        }
 
-        return data;
+        console.log("✅ SOLICITUD ACTUALIZADA EN SUPABASE:", updRows[0]);
+
+        return updRows[0];
     }
 
 
@@ -1327,26 +1365,7 @@ async function initStorage() {
 
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
 
-    await reloadTickets();
-
-    // Migración desde la versión anterior (localStorage v9)
-    if (!tickets.length && !localStorage.getItem(MIGRATED_KEY)) {
-        let migrated = false;
-        try {
-            const old = JSON.parse(localStorage.getItem(OLD_STORAGE_KEY) || "null");
-            if (Array.isArray(old) && old.length) {
-                for (const t of old) await persistTicket(t);
-                migrated = true;
-            }
-        } catch (err) {
-            console.warn("No se pudo migrar:", err);
-        }
-        if (!migrated) {
-            for (const t of buildDemoTickets()) await persistTicket(t);
-        }
-        try { localStorage.setItem(MIGRATED_KEY, "1"); } catch {}
-        await reloadTickets();
-    }
+    try { await reloadTickets(); } catch (err) { console.error("No se pudieron cargar las solicitudes:", err); }
 
     try {
         channel = new BroadcastChannel("sitodep_tdm_channel");
@@ -1501,7 +1520,7 @@ async function handleLogin(e) {
     }
 
     currentUser = user;
-    localStorage.setItem(SESSION_KEY, currentUser);
+    sessionStorage.setItem(SESSION_KEY, currentUser);
 
     await reloadTickets();
 
@@ -1513,7 +1532,7 @@ async function handleLogin(e) {
 
 function logout() {
     currentUser = null;
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
 
     document.getElementById("app-screen").classList.add("hidden");
     document.getElementById("login-screen").classList.remove("hidden");
@@ -1522,7 +1541,7 @@ function logout() {
 }
 
 function checkActiveSession() {
-    const savedUser = localStorage.getItem(SESSION_KEY);
+    const savedUser = sessionStorage.getItem(SESSION_KEY);
     if (savedUser && USERS[savedUser]) {
         currentUser = savedUser;
         document.getElementById("login-screen").classList.add("hidden");
@@ -2065,7 +2084,7 @@ async function moveTicket(id, newStatus) {
         Object.assign(ticket, backup);
 
         showCustomAlert(
-            "No se pudo guardar el cambio de estado. Intenta nuevamente.",
+            "No se pudo guardar el cambio de estado.\n\nDetalle: " + errMsg(err),
             "Error al Guardar",
             "error"
         );
@@ -2132,7 +2151,7 @@ async function confirmCancelRequest() {
         Object.assign(ticket, backup);
         closeCancelModal();
         renderCurrent();
-        showCustomAlert("No se pudo guardar la cancelación. Intenta nuevamente.", "Error al Guardar", "error");
+        showCustomAlert("No se pudo guardar la cancelación.\n\nDetalle: " + errMsg(err), "Error al Guardar", "error");
         return;
     }
 
@@ -2491,7 +2510,7 @@ async function executeSaveRequest() {
         };
 
         // Primero se guarda; solo si se guardó bien se agrega a la lista
-        await persistTicket(newTicket);
+        await persistTicket(newTicket, true);
         tickets.push(newTicket);
         notifyChange();
 
@@ -2503,7 +2522,7 @@ async function executeSaveRequest() {
 
     } catch (error) {
         console.error("Error al guardar ticket:", error);
-        showCustomAlert("No se pudo guardar la solicitud (posible falta de espacio de almacenamiento). No se creó ningún registro; prueba con menos imágenes o más livianas.", "Error al Guardar", "error");
+        showCustomAlert("No se pudo guardar la solicitud. No se creó ningún registro.\n\nDetalle: " + errMsg(error), "Error al Guardar", "error");
     } finally {
         if (submitBtn) {
             submitBtn.disabled = false;
@@ -2567,7 +2586,7 @@ async function confirmComplete() {
         Object.assign(ticket, backup);
         closeCompleteModal();
         renderKanban();
-        showCustomAlert("No se pudo guardar la finalización. Intenta nuevamente.", "Error al Guardar", "error");
+        showCustomAlert("No se pudo guardar la finalización.\n\nDetalle: " + errMsg(err), "Error al Guardar", "error");
         return;
     }
 
