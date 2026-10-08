@@ -474,7 +474,7 @@
     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl modal-scroll">
         <div class="sticky top-0 bg-white z-10 px-6 py-5 border-b border-slate-100 flex items-center justify-between rounded-t-3xl">
             <div>
-                <p class="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Nueva solicitud</p>
+                <p id="request-modal-kicker" class="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Nueva solicitud</p>
                 <h3 class="font-bold text-xl text-slate-900" id="modal-step-title">Paso 1: Tipo de Solicitud</h3>
                 <p class="text-xs text-slate-500 mt-1" id="modal-step-subtitle">Selecciona el tipo de orden para continuar con los datos requeridos.</p>
             </div>
@@ -569,6 +569,11 @@
                     <div>
                         <label class="form-label">Cliente *</label>
                         <input id="f-cliente" required class="form-input" placeholder="Nombre de la empresa / cliente">
+                    </div>
+                    <!-- SUCURSAL: obligatoria en TODOS los tipos de requerimiento -->
+                    <div>
+                        <label class="form-label">Sucursal *</label>
+                        <input id="f-sucursal" required class="form-input" placeholder="Sucursal donde se realiza el servicio">
                     </div>
                     <div>
                         <label class="form-label">Prioridad *</label>
@@ -696,6 +701,10 @@
                     <input id="f-evidencias" type="file" accept="image/*" multiple
                         class="w-full text-sm text-slate-500 border border-slate-300 rounded-xl p-2 bg-slate-50">
                     <p class="text-[11px] text-slate-400 mt-1">Puedes seleccionar varias imágenes. Se optimizan automáticamente para guardarlas.</p>
+                    <div id="edit-evidencias-box" class="hidden mt-3">
+                        <p class="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2">Evidencias ya cargadas (quita las que no quieras conservar)</p>
+                        <div id="edit-evidencias-list" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+                    </div>
                 </div>
             </div>
 
@@ -963,9 +972,20 @@ const TDM_USERS = [
     "Aschelly",
     "Lennisse",
     "Giovanna",
+    "Andreya",
+    "Carolin",
+    "Lorenzo",
+    "Johana",
+    "Bianca",
     "Prueba",
     // ... (aquí van los ~50 solicitantes, uno por línea)
 ];
+
+/* >>> EDICIÓN DE TICKETS (buscar: EDIT_ACCESS_ONE_TIME) <<<
+   true  = cuando el CAC da acceso a editar una orden EN PROCESO, el acceso se cierra solo
+           después de que el TDM guarda su cambio (el CAC tiene que darlo otra vez si hace falta).
+   false = el acceso queda abierto hasta que el CAC lo quite o la orden pase a completada/cancelada. */
+const EDIT_ACCESS_ONE_TIME = true;
 
 /* Contraseña inicial de TODOS (cada quien puede cambiarla con el botón de la llave 🔑) */
 const DEFAULT_PASSWORD = "1234567899";
@@ -1028,6 +1048,36 @@ function displayUser(raw) {
 /* ---------- Permisos ---------- */
 function isManager()   { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "manager"; }
 function isRequester() { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "requester"; }
+
+/* ---------- Permisos de EDICIÓN de solicitudes ----------
+   - Solo el TDM que creó la solicitud puede editarla (el CAC nunca la edita).
+   - PENDIENTE  → el TDM edita libremente.
+   - EN PROCESO → solo si el CAC le dio acceso (editAccess.granted).
+   - COMPLETADA / CANCELADA → no se edita. */
+function hasEditAccess(t) { return !!(t && t.editAccess && t.editAccess.granted); }
+
+function isOwnerOf(t) { return !!t && resolveUserKey(t.requester) === currentUser; }
+
+function canRequesterEdit(t) {
+    if (!t || !isRequester() || !isOwnerOf(t)) return false;
+    if (t.status === "pendiente") return true;
+    if (t.status === "proceso") return hasEditAccess(t);
+    return false;
+}
+
+// Campos que se comparan para saber qué cambió y mostrarlo en el historial
+const EDIT_FIELDS = [
+    ["tipo", "Tipo de solicitud"], ["accion", "Tipo de acción"], ["cliente", "Cliente"],
+    ["sucursal", "Sucursal"], ["prioridad", "Prioridad"], ["recibe", "Quién recibe"],
+    ["contacto", "Contacto"], ["fechaRecepcion", "Fecha de recepción"], ["reporta", "Usuario que reporta"],
+    ["modeloActual", "Modelo actual"], ["serialActual", "Serial actual"],
+    ["modeloNuevo", "Modelo del equipo"], ["serialNuevo", "Serial del equipo"],
+    ["facturacion", "Facturación"], ["tipoMantenimiento", "Mantenimiento"],
+    ["usuariosAfectados", "Usuarios afectados"], ["escaneo", "Tipo de escaneo"],
+    ["cantidadUsuarios", "Cantidad de usuarios"], ["conectividad", "Conectividad"],
+    ["incluyeInstalacion", "Incluye instalación"], ["departamento", "Departamento"],
+    ["ultimaReparacion", "Última reparación"], ["delivery", "Delivery"], ["notas", "Notas"]
+];
 
 /* ---------- Contraseñas (guardadas en el navegador, como los tickets) ---------- */
 async function hashPassword(userKey, pass) {
@@ -1095,6 +1145,8 @@ let draggedTicketId = null;
 let ticketBeingCompleted = null;
 let ticketBeingCanceled = null;
 let selectedOrderType = "";
+let editingTicketId = null;      // si tiene un número, el formulario está en modo EDICIÓN
+let editEvidenciasKeep = [];     // evidencias que se conservan al editar
 let filterOnlyMine = false;
 let tickets = [];
 
@@ -1163,7 +1215,10 @@ function rowToTicket(row) {
         prioridad: row.prioridad || d.prioridad || "Normal",
         ticketNumber: row.numero_ticket || d.ticketNumber || "",
         evidencias: Array.isArray(d.evidencias) ? d.evidencias : [],
-        movementHistory: Array.isArray(d.movementHistory) ? d.movementHistory : []
+        movementHistory: Array.isArray(d.movementHistory) ? d.movementHistory : [],
+        editHistory: Array.isArray(d.editHistory) ? d.editHistory : [],
+        edited: !!d.edited,
+        editAccess: d.editAccess && typeof d.editAccess === "object" ? d.editAccess : { granted: false }
     };
 }
 
@@ -1218,6 +1273,7 @@ async function persistTicket(ticket, isNew = false) {
         accion: ticket.accion || "",
 
         cliente: ticket.cliente || "",
+        sucursal: ticket.sucursal || "",
         prioridad: ticket.prioridad || "Normal",
         recibe: ticket.recibe || "",
         fechaRecepcion: ticket.fechaRecepcion || "",
@@ -1247,6 +1303,14 @@ async function persistTicket(ticket, isNew = false) {
         movedAt: ticket.movedAt || "",
 
         movementHistory: ticket.movementHistory || [],
+
+        // Edición de la solicitud
+        edited: !!ticket.edited,
+        editCount: ticket.editCount || 0,
+        lastEditedBy: ticket.lastEditedBy || "",
+        lastEditedAt: ticket.lastEditedAt || "",
+        editHistory: ticket.editHistory || [],
+        editAccess: ticket.editAccess || { granted: false },
 
         ticketNumber: ticket.ticketNumber || "",
 
@@ -1495,6 +1559,20 @@ function handlerCell(t) {
     return `<div class="text-[10px] uppercase tracking-wider font-bold text-slate-400">${h.label}</div>
             <div class="text-sm font-bold ${h.cls}">${escapeHtml(h.name)}</div>
             ${h.at ? `<div class="text-[10px] text-slate-400">${formatDateTime(h.at)}</div>` : ""}`;
+}
+
+// Etiquetas "Editada" / "Edición habilitada" que ven CAC y TDM
+function editBadges(t) {
+    let html = "";
+    if (t.edited) {
+        const quien = t.lastEditedBy ? displayUser(t.lastEditedBy) : "";
+        const cuando = t.lastEditedAt ? formatDateTime(t.lastEditedAt) : "";
+        html += `<span title="Editada${quien ? " por " + escapeHtml(quien) : ""}${cuando ? " · " + escapeHtml(cuando) : ""}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-100 text-amber-700"><i class="fa-solid fa-pen text-[8px]"></i>Editada${t.editCount > 1 ? " x" + t.editCount : ""}</span>`;
+    }
+    if (t.status === "proceso" && hasEditAccess(t)) {
+        html += `<span title="El CAC habilitó la edición de esta solicitud" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-violet-100 text-violet-700"><i class="fa-solid fa-lock-open text-[8px]"></i>Edición habilitada</span>`;
+    }
+    return html;
 }
 
 function priorityBadge(priority) {
@@ -1758,6 +1836,7 @@ function renderRequesterView() {
     if (searchVal) {
         filtered = filtered.filter(t =>
             (t.cliente && t.cliente.toLowerCase().includes(searchVal)) ||
+            (t.sucursal && t.sucursal.toLowerCase().includes(searchVal)) ||
             (t.tipo && t.tipo.toLowerCase().includes(searchVal)) ||
             (t.accion && t.accion.toLowerCase().includes(searchVal)) ||
             (t.requester && displayUser(t.requester).toLowerCase().includes(searchVal)) ||
@@ -1816,6 +1895,7 @@ function renderRequesterView() {
                     <span class="status-dot ${status.dot}"></span>
                     ${status.label}
                 </span>
+                <div class="mt-1 flex flex-wrap gap-1">${editBadges(t)}</div>
             </td>
             <td class="px-5 py-4">${handlerCell(t)}</td>
             <td class="px-5 py-4">
@@ -1823,7 +1903,14 @@ function renderRequesterView() {
                     ? `<span class="font-bold text-emerald-700">${escapeHtml(t.ticketNumber)}</span>`
                     : `<span class="text-xs text-slate-400">Pendiente</span>`}
             </td>
-            <td class="px-5 py-4 text-right" onclick="event.stopPropagation()">
+            <td class="px-5 py-4 text-right whitespace-nowrap" onclick="event.stopPropagation()">
+                ${canRequesterEdit(t) ? `
+                    <button onclick="openEditModal(${t.id})" title="Editar solicitud" class="p-2 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                ` : (isOwnerOf(t) && t.status === "proceso" ? `
+                    <span title="En proceso: pídele al CAC que te dé acceso para editar" class="inline-block p-2 text-slate-300"><i class="fa-solid fa-lock"></i></span>
+                ` : "")}
                 ${t.status !== "cancelada" && t.status !== "completada" ? `
                     <button onclick="openCancelModal(${t.id})" title="Cancelar Solicitud" class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition">
                         <i class="fa-solid fa-ban"></i>
@@ -1905,6 +1992,8 @@ function renderKanban() {
                 </span>
             </div>
 
+            ${editBadges(t) ? `<div class="mb-2 flex flex-wrap gap-1">${editBadges(t)}</div>` : ""}
+
             <div class="mb-2 flex items-center justify-between">
                 <span class="text-[10px] font-bold text-slate-400">#${t.id}</span>
                 <span class="text-[10px] font-medium text-slate-400">${formatDate(t.createdAt)}</span>
@@ -1914,6 +2003,12 @@ function renderKanban() {
                 <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Cliente</p>
                 <p class="font-bold text-sm text-slate-800 mt-0.5">${escapeHtml(t.cliente)}</p>
             </div>
+
+            ${t.sucursal ? `
+            <div class="mb-2">
+                <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Sucursal</p>
+                <p class="text-xs font-semibold text-slate-700 mt-0.5">${escapeHtml(t.sucursal)}</p>
+            </div>` : ""}
 
             <div class="mb-2">
                 <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Solicitado Por</p>
@@ -1957,6 +2052,11 @@ function renderKanban() {
                     class="flex-1 text-xs font-semibold text-slate-500 hover:text-indigo-600 py-1 text-center">
                     <i class="fa-solid fa-eye mr-1"></i> Ver detalle
                 </button>
+                ${t.status === "proceso" ? `
+                    <button onclick="event.stopPropagation(); toggleEditAccess(${t.id})" title="${hasEditAccess(t) ? "Quitar acceso de edición" : "Dar acceso para que el TDM edite"}" class="px-2 py-1 text-[11px] font-bold ${hasEditAccess(t) ? "text-violet-700 bg-violet-50" : "text-violet-600 hover:bg-violet-50"} rounded-lg">
+                        <i class="fa-solid ${hasEditAccess(t) ? "fa-lock-open" : "fa-pen"} mr-1"></i>${hasEditAccess(t) ? "Quitar edición" : "Permitir edición"}
+                    </button>
+                ` : ""}
                 ${quickBtn}
                 ${t.status !== "cancelada" && t.status !== "completada" ? `
                     <button onclick="event.stopPropagation(); openCancelModal(${t.id})" title="Cancelar" class="p-1 text-rose-500 hover:text-rose-700">
@@ -2242,7 +2342,9 @@ function openRequestModal() {
         return;
     }
 
+    setRequestModalMode(null);
     selectedOrderType = "";
+    document.getElementById("request-form").reset();
     document.getElementById("step1-tipo-orden").value = "";
 
     const reportaInput = document.getElementById("f-reporta");
@@ -2259,6 +2361,273 @@ function openRequestModal() {
 function closeRequestModal() {
     document.getElementById("request-modal").classList.add("hidden");
     document.getElementById("request-modal").classList.remove("flex");
+    setRequestModalMode(null);
+}
+
+// null = nueva solicitud · número = editando esa solicitud
+function setRequestModalMode(ticketId) {
+    editingTicketId = ticketId;
+    const isEdit = ticketId !== null;
+    const kicker = document.getElementById("request-modal-kicker");
+    if (kicker) kicker.innerText = isEdit ? `Editar solicitud #${ticketId}` : "Nueva solicitud";
+    const btn = document.getElementById("btn-submit-request");
+    if (btn) btn.innerHTML = `<span>${isEdit ? "Guardar cambios" : "Registrar solicitud"}</span>`;
+    const box = document.getElementById("edit-evidencias-box");
+    if (box && !isEdit) { box.classList.add("hidden"); editEvidenciasKeep = []; }
+}
+
+/* =========================================================
+   EDITAR SOLICITUD (lado TDM)
+========================================================= */
+function setVal(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.value = v == null ? "" : v;
+}
+
+function renderEditEvidencias() {
+    const box = document.getElementById("edit-evidencias-box");
+    const list = document.getElementById("edit-evidencias-list");
+    if (!box || !list) return;
+    if (!editEvidenciasKeep.length) { box.classList.add("hidden"); list.innerHTML = ""; return; }
+    box.classList.remove("hidden");
+    list.innerHTML = editEvidenciasKeep.map((ev, i) => `
+        <div class="border border-slate-200 rounded-xl p-2 bg-slate-50 text-center">
+            <img src="${ev.data}" class="h-24 w-full object-cover rounded-lg mb-1">
+            <p class="text-[10px] text-slate-500 truncate">${escapeHtml(ev.name)}</p>
+            <button type="button" onclick="removeEditEvidencia(${i})" class="mt-1 text-[11px] font-bold text-rose-600 hover:underline">
+                <i class="fa-solid fa-trash mr-1"></i>Quitar
+            </button>
+        </div>`).join("");
+}
+
+function removeEditEvidencia(i) {
+    editEvidenciasKeep.splice(i, 1);
+    renderEditEvidencias();
+}
+
+function openEditModal(id) {
+    const t = tickets.find(x => x.id === id);
+    if (!t) return;
+
+    if (!canRequesterEdit(t)) {
+        const motivo = !isRequester() || !isOwnerOf(t)
+            ? "Solo quien creó la solicitud puede editarla."
+            : t.status === "proceso"
+                ? "Esta solicitud está en proceso. Pídele al CAC que te dé acceso para editarla."
+                : "Esta solicitud ya no se puede editar.";
+        showCustomAlert(motivo, "Edición no disponible", "info");
+        return;
+    }
+
+    closeDetailModal();
+    document.getElementById("request-form").reset();
+    setRequestModalMode(t.id);
+
+    selectedOrderType = t.tipo;
+    document.getElementById("step1-tipo-orden").value = t.tipo;
+    document.getElementById("display-selected-type").innerText = t.tipo;
+    setupDynamicFields(t.tipo);
+
+    setVal("f-accion", t.accion);
+    setVal("f-cliente", t.cliente);
+    setVal("f-sucursal", t.sucursal);
+    setVal("f-prioridad", t.prioridad || "Normal");
+    setVal("f-recibe", t.recibe);
+    setVal("f-contacto", t.contacto);
+    setVal("f-fecha-recepcion", t.fechaRecepcion);
+    setVal("f-reporta", t.reporta);
+    setVal("f-modelo-actual", t.modeloActual);
+    setVal("f-serial-actual", t.serialActual);
+    setVal("f-modelo", t.modeloNuevo);
+    setVal("f-serial", t.serialNuevo);
+    setVal("f-facturacion", t.facturacion);
+    setVal("f-tipo-mantenimiento", t.tipoMantenimiento);
+    setVal("f-usuarios-afectados", t.usuariosAfectados);
+    setVal("f-escaneo", t.escaneo);
+    setVal("f-cantidad-usuarios", t.cantidadUsuarios);
+    setVal("f-conectividad", t.conectividad);
+    setVal("f-incluye-instalacion", t.incluyeInstalacion);
+    setVal("f-departamento", t.departamento);
+    setVal("f-ultima-reparacion", t.ultimaReparacion);
+    setVal("f-notas", t.notas);
+    const dl = document.getElementById("f-delivery");
+    if (dl) dl.checked = !!t.delivery;
+
+    editEvidenciasKeep = (t.evidencias || []).map(e => ({ ...e }));
+    renderEditEvidencias();
+
+    document.getElementById("step-1-container").classList.add("hidden");
+    document.getElementById("request-form").classList.remove("hidden");
+    document.getElementById("modal-step-title").innerText = "Editar datos del requerimiento";
+    document.getElementById("modal-step-subtitle").innerText = "Modifica lo necesario. Quedará registrado que la solicitud fue editada.";
+
+    document.getElementById("request-modal").classList.remove("hidden");
+    document.getElementById("request-modal").classList.add("flex");
+}
+
+async function executeSaveEdit() {
+    const submitBtn = document.getElementById("btn-submit-request");
+    if (submitBtn) {
+        if (submitBtn.disabled) return;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span>Guardando...</span> <i class="fa-solid fa-spinner fa-spin text-xs"></i>`;
+    }
+
+    const ticketId = editingTicketId;
+    let backup = null;
+
+    try {
+        // Se relee para confirmar que el estado/acceso no cambió mientras editaba
+        await reloadTickets();
+        const ticket = tickets.find(t => t.id === ticketId);
+
+        if (!ticket || !canRequesterEdit(ticket)) {
+            closeRequestModal();
+            renderCurrent();
+            showCustomAlert("Ya no tienes permiso para editar esta solicitud (cambió de estado o se cerró el acceso). No se guardó ningún cambio.", "Edición no permitida", "error");
+            return;
+        }
+
+        const files = Array.from((document.getElementById("f-evidencias") || {}).files || []);
+        const nuevasEvidencias = [];
+        for (const file of files) {
+            try {
+                const dataUrl = await compressImage(file);
+                nuevasEvidencias.push({ name: file.name.replace(/\.[^.]+$/, "") + ".jpg", data: dataUrl });
+            } catch (err) { console.error("Error leyendo imagen:", err); }
+        }
+        const evidencias = [...editEvidenciasKeep, ...nuevasEvidencias];
+
+        const checkDelivery = document.getElementById("f-delivery");
+        const nuevos = {
+            tipo: selectedOrderType,
+            accion: formatTitleCase(value("f-accion")),
+            cliente: formatTitleCase(value("f-cliente")),
+            sucursal: formatTitleCase(value("f-sucursal")),
+            prioridad: value("f-prioridad") || "Normal",
+            recibe: formatTitleCase(value("f-recibe")),
+            contacto: value("f-contacto"),
+            fechaRecepcion: value("f-fecha-recepcion"),
+            reporta: formatTitleCase(value("f-reporta") || USERS[currentUser].name),
+            modeloActual: value("f-modelo-actual").toUpperCase(),
+            serialActual: value("f-serial-actual").toUpperCase(),
+            modeloNuevo: value("f-modelo").toUpperCase(),
+            serialNuevo: value("f-serial").toUpperCase(),
+            facturacion: value("f-facturacion"),
+            tipoMantenimiento: value("f-tipo-mantenimiento"),
+            usuariosAfectados: value("f-usuarios-afectados"),
+            escaneo: value("f-escaneo"),
+            cantidadUsuarios: value("f-cantidad-usuarios"),
+            conectividad: value("f-conectividad"),
+            incluyeInstalacion: value("f-incluye-instalacion"),
+            departamento: formatTitleCase(value("f-departamento")),
+            ultimaReparacion: value("f-ultima-reparacion"),
+            delivery: checkDelivery ? checkDelivery.checked : false,
+            notas: value("f-notas")
+        };
+
+        // Qué cambió exactamente
+        const changes = [];
+        EDIT_FIELDS.forEach(([key, label]) => {
+            const antes = ticket[key] === undefined || ticket[key] === null ? "" : ticket[key];
+            const despues = nuevos[key];
+            if (String(antes) !== String(despues)) {
+                changes.push({
+                    field: label,
+                    from: key === "delivery" ? (antes ? "Sí" : "No") : String(antes),
+                    to: key === "delivery" ? (despues ? "Sí" : "No") : String(despues)
+                });
+            }
+        });
+        const quitadas = (ticket.evidencias || []).length - editEvidenciasKeep.length;
+        if (quitadas > 0) changes.push({ field: "Evidencias", from: "", to: `${quitadas} eliminada(s)` });
+        if (nuevasEvidencias.length) changes.push({ field: "Evidencias", from: "", to: `${nuevasEvidencias.length} agregada(s)` });
+
+        if (!changes.length) {
+            showCustomAlert("No hiciste ningún cambio en la solicitud.", "Sin cambios", "info");
+            return;
+        }
+
+        backup = JSON.parse(JSON.stringify(ticket));
+        const editedAt = new Date().toISOString();
+        const consumioAcceso = ticket.status === "proceso" && EDIT_ACCESS_ONE_TIME;
+
+        Object.assign(ticket, nuevos, { evidencias });
+        ticket.edited = true;
+        ticket.editCount = (ticket.editCount || 0) + 1;
+        ticket.lastEditedBy = currentUser;
+        ticket.lastEditedAt = editedAt;
+        if (!Array.isArray(ticket.editHistory)) ticket.editHistory = [];
+        ticket.editHistory.push({
+            type: "edicion",
+            by: currentUser,
+            at: editedAt,
+            statusAtEdit: ticket.status,
+            changes
+        });
+        if (consumioAcceso) {
+            ticket.editAccess = { ...(ticket.editAccess || {}), granted: false, closedAt: editedAt, closedReason: "usado" };
+        }
+
+        try {
+            await persistTicket(ticket);
+        } catch (err) {
+            Object.assign(ticket, backup);
+            throw err;
+        }
+        notifyChange();
+
+        document.getElementById("request-form").reset();
+        closeRequestModal();
+        renderCurrent();
+        showCustomAlert(`La solicitud #${ticket.id} se actualizó correctamente. Quedó marcada como editada para el equipo CAC.`, "Solicitud Editada", "success");
+
+    } catch (error) {
+        console.error("Error al guardar edición:", error);
+        showCustomAlert("No se pudieron guardar los cambios.\n\nDetalle: " + errMsg(error), "Error al Guardar", "error");
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<span>${editingTicketId !== null ? "Guardar cambios" : "Registrar solicitud"}</span>`;
+        }
+    }
+}
+
+/* =========================================================
+   DAR / QUITAR ACCESO DE EDICIÓN (lado CAC)
+========================================================= */
+async function toggleEditAccess(id) {
+    if (!isManager()) return;
+    const ticket = tickets.find(t => t.id === id);
+    if (!ticket) return;
+
+    if (ticket.status !== "proceso") {
+        showCustomAlert("El acceso de edición solo se da a órdenes en proceso. Las pendientes ya son editables por el TDM.", "No aplica", "info");
+        return;
+    }
+
+    const backup = JSON.parse(JSON.stringify(ticket));
+    const now = new Date().toISOString();
+    const dar = !hasEditAccess(ticket);
+
+    ticket.editAccess = dar
+        ? { granted: true, grantedBy: currentUser, grantedAt: now }
+        : { ...(ticket.editAccess || {}), granted: false, closedAt: now, closedReason: "revocado" };
+
+    if (!Array.isArray(ticket.editHistory)) ticket.editHistory = [];
+    ticket.editHistory.push({ type: dar ? "acceso_otorgado" : "acceso_revocado", by: currentUser, at: now });
+
+    try {
+        await persistTicket(ticket);
+        notifyChange();
+    } catch (err) {
+        console.error(err);
+        Object.assign(ticket, backup);
+        showCustomAlert("No se pudo cambiar el acceso de edición.\n\nDetalle: " + errMsg(err), "Error al Guardar", "error");
+    }
+
+    renderCurrent();
+    if (!document.getElementById("detail-modal").classList.contains("hidden")) openDetailModal(id);
 }
 
 function backToStep1() {
@@ -2506,6 +2875,8 @@ function compressImage(file, maxSide = 1600, quality = 0.82) {
 }
 
 async function executeSaveRequest() {
+    if (editingTicketId !== null) return executeSaveEdit();
+
     const submitBtn = document.getElementById("btn-submit-request");
     if (submitBtn) {
         if (submitBtn.disabled) return;
@@ -2543,6 +2914,7 @@ async function executeSaveRequest() {
             accion: formatTitleCase(value("f-accion")),
 
             cliente: formatTitleCase(value("f-cliente")),
+            sucursal: formatTitleCase(value("f-sucursal")),
             prioridad: value("f-prioridad") || "Normal",
             recibe: formatTitleCase(value("f-recibe")),
             contacto: value("f-contacto"),
@@ -2572,6 +2944,10 @@ async function executeSaveRequest() {
             movedBy: "",
             movedAt: "",
             movementHistory: [],
+            edited: false,
+            editCount: 0,
+            editHistory: [],
+            editAccess: { granted: false },
             ticketNumber: "",
             completedBy: "",
             completedAt: "",
@@ -2722,12 +3098,38 @@ function openDetailModal(id) {
                      Ticket/Orden: ${escapeHtml(ticket.ticketNumber)}
                    </span>`
                 : ""}
+            ${editBadges(ticket)}
         </div>
+
+        ${canRequesterEdit(ticket) ? `
+            <div class="mb-5">
+                <button type="button" onclick="openEditModal(${ticket.id})" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm">
+                    <i class="fa-solid fa-pen-to-square mr-1"></i>Editar solicitud
+                </button>
+            </div>` : ""}
+
+        ${isManager() && ticket.status === "proceso" ? `
+            <div class="mb-5 p-3 rounded-xl bg-violet-50 border border-violet-100 flex flex-wrap items-center justify-between gap-3">
+                <p class="text-xs text-violet-800">
+                    ${hasEditAccess(ticket)
+                        ? "El solicitante tiene acceso para editar esta solicitud."
+                        : "El solicitante no puede editar esta solicitud mientras esté en proceso."}
+                </p>
+                <button type="button" onclick="toggleEditAccess(${ticket.id})" class="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-bold">
+                    <i class="fa-solid ${hasEditAccess(ticket) ? "fa-lock" : "fa-lock-open"} mr-1"></i>${hasEditAccess(ticket) ? "Quitar acceso de edición" : "Dar acceso para editar"}
+                </button>
+            </div>` : ""}
+
+        ${isOwnerOf(ticket) && ticket.status === "proceso" && !hasEditAccess(ticket) ? `
+            <p class="mb-5 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-xl p-3">
+                <i class="fa-solid fa-lock mr-1"></i>Esta solicitud está en proceso. Si necesitas modificarla, pídele al CAC que te dé acceso para editar.
+            </p>` : ""}
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
             ${detailItem("Tipo de Acción", ticket.accion)}
             ${detailItem("Prioridad", ticket.prioridad)}
             ${detailItem("Cliente", ticket.cliente)}
+            ${detailItem("Sucursal", ticket.sucursal || "— (sin registrar)")}
             ${detailItem("Contacto", ticket.contacto)}
             ${detailItem("Recibe en sucursal", ticket.recibe)}
             ${ticket.fechaRecepcion ? detailItem("Fecha recepción", ticket.fechaRecepcion) : ""}
@@ -2779,6 +3181,41 @@ function openDetailModal(id) {
                             </div>
                         </div>
                     `).join("")}
+                </div>
+            </div>
+        ` : ""}
+
+        ${Array.isArray(ticket.editHistory) && ticket.editHistory.length ? `
+            <div class="mb-5">
+                <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-2">Historial de ediciones y accesos</p>
+                <div class="space-y-2">
+                    ${ticket.editHistory.slice().reverse().map(h => {
+                        const esEdicion = h.type === "edicion";
+                        const titulo = esEdicion ? "Solicitud editada"
+                            : h.type === "acceso_otorgado" ? "Acceso de edición otorgado"
+                            : "Acceso de edición retirado";
+                        const icono = esEdicion ? "fa-pen" : (h.type === "acceso_otorgado" ? "fa-lock-open" : "fa-lock");
+                        return `
+                        <div class="flex items-start gap-3 bg-amber-50/50 border border-amber-100 rounded-xl p-3">
+                            <div class="w-7 h-7 rounded-lg bg-white border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+                                <i class="fa-solid ${icono} text-[10px]"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-xs font-bold text-slate-700">${titulo}</p>
+                                <p class="text-[11px] text-slate-500 mt-0.5">
+                                    Por <b>${escapeHtml(displayUser(h.by || "—"))}</b>${h.at ? ` · ${formatDateTime(h.at)}` : ""}
+                                </p>
+                                ${esEdicion && Array.isArray(h.changes) ? `
+                                    <ul class="mt-1.5 space-y-0.5">
+                                        ${h.changes.map(c => `
+                                            <li class="text-[11px] text-slate-600">
+                                                <b>${escapeHtml(c.field)}:</b>
+                                                ${c.from ? `<span class="line-through text-slate-400">${escapeHtml(c.from)}</span> → ` : ""}<span class="font-semibold">${escapeHtml(c.to || "(vacío)")}</span>
+                                            </li>`).join("")}
+                                    </ul>` : ""}
+                            </div>
+                        </div>`;
+                    }).join("")}
                 </div>
             </div>
         ` : ""}
