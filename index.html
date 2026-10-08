@@ -1289,16 +1289,6 @@ async function persistTicket(ticket) {
     return data;
 }
 
-    if (error) {
-        console.error("Error guardando solicitud en Supabase:", error);
-        throw error;
-    }
-
-    console.log("Solicitud guardada correctamente en Supabase:", data);
-
-    return data;
-}
-
 async function reloadTickets() {
     tickets = await loadAllTickets();
 }
@@ -2065,63 +2055,13 @@ async function moveTicket(id, newStatus) {
     });
 
     try {
-
-        // ==========================================
-        // ACTUALIZAR SOLICITUD EXISTENTE EN SUPABASE
-        // ==========================================
-
-        const estadoSupabase =
-            newStatus === "proceso"
-                ? "En proceso"
-                : newStatus === "pendiente"
-                    ? "Pendiente"
-                    : newStatus;
-
-        const datosActualizados = {
-            requester: ticket.requester || "",
-            contacto: ticket.contacto || "",
-            modelo: ticket.modelo || "",
-            serial: ticket.serial || "",
-            requerimiento: ticket.requerimiento || "",
-            sucursal: ticket.sucursal || "",
-            usuarios: ticket.usuarios || "",
-            conectividad: ticket.conectividad || "",
-            escaneo: ticket.escaneo || "",
-            diagnostico: ticket.diagnostico || "",
-            evidenceName: ticket.evidenceName || "",
-            evidenceData: ticket.evidenceData || "",
-            movedBy: ticket.movedBy || "",
-            movedAt: ticket.movedAt || "",
-            movementHistory: ticket.movementHistory || []
-        };
-
-        const { data, error } = await supabaseClient
-            .from("solicitudes")
-            .update({
-                estado: estadoSupabase,
-                updated_at: movementAt,
-                datos: datosActualizados
-            })
-            .eq("numero_solicitud", String(ticket.id))
-            .select()
-            .single();
-
-        if (error) {
-            throw error;
-        }
-
-        console.log("✅ Estado actualizado en Supabase:", data);
-
-        // Guardar también la copia local
-        saveTickets();
-
+        // Guarda en local (IndexedDB) y en Supabase con la misma función de siempre
+        await persistTicket(ticket);
         notifyChange();
-
     } catch (err) {
-
         console.error("❌ Error guardando cambio de estado:", err);
 
-        // Restaurar estado anterior si falla Supabase
+        // Restaurar estado anterior si falla el guardado
         Object.assign(ticket, backup);
 
         showCustomAlert(
