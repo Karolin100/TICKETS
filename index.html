@@ -439,6 +439,31 @@
             </div>
         </div>
     </main>
+
+    <main id="admin-view" class="hidden flex-1 p-5 lg:p-8">
+      <div class="max-w-[1600px] mx-auto w-full">
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div><p class="text-xs uppercase tracking-wider font-bold text-indigo-600">Control administrativo</p><h1 class="text-xl font-extrabold text-slate-900">Panel de Administración SITODEP</h1><p class="text-sm text-slate-500">Acceso completo a CAC, TDM y métricas por usuario.</p></div>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="adminNavigate('metrics')" class="px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white">Métricas</button>
+            <button onclick="adminNavigate('cac')" class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">Panel CAC</button>
+            <button onclick="adminNavigate('tdm')" class="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">Panel TDM</button>
+          </div>
+        </div>
+        <section id="admin-metrics-panel" class="space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="bg-white border rounded-2xl p-5"><p class="text-xs uppercase font-bold text-slate-500">Total solicitudes</p><p id="admin-total" class="text-3xl font-extrabold mt-2">0</p></div>
+            <div class="bg-white border rounded-2xl p-5"><p class="text-xs uppercase font-bold text-blue-600">En proceso</p><p id="admin-process" class="text-3xl font-extrabold mt-2 text-blue-600">0</p></div>
+            <div class="bg-white border rounded-2xl p-5"><p class="text-xs uppercase font-bold text-emerald-600">Completadas</p><p id="admin-completed" class="text-3xl font-extrabold mt-2 text-emerald-600">0</p></div>
+            <div class="bg-white border rounded-2xl p-5"><p class="text-xs uppercase font-bold text-rose-600">Canceladas</p><p id="admin-canceled" class="text-3xl font-extrabold mt-2 text-rose-600">0</p></div>
+          </div>
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold mb-1">Actividad por usuario CAC</h2><p class="text-xs text-slate-500 mb-4">Tickets tomados, completados y cancelados por usuario.</p><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-xs uppercase text-slate-500 border-b"><th class="py-3 pr-3">Usuario CAC</th><th class="py-3 px-2">Tomados</th><th class="py-3 px-2">Tickets generados</th><th class="py-3 px-2">Cancelados</th></tr></thead><tbody id="admin-cac-metrics"></tbody></table></div></div>
+            <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold mb-1">Solicitudes por usuario TDM</h2><p class="text-xs text-slate-500 mb-4">Solicitudes registradas por solicitante.</p><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-xs uppercase text-slate-500 border-b"><th class="py-3 pr-3">Usuario TDM</th><th class="py-3 px-2">Solicitudes</th><th class="py-3 px-2">Pendientes</th><th class="py-3 px-2">Completadas</th></tr></thead><tbody id="admin-tdm-metrics"></tbody></table></div></div>
+          </div>
+        </section>
+      </div>
+    </main>
 </div>
 
 
@@ -994,6 +1019,8 @@ async function testSupabaseConnection() {
 
 
 /* >>> CAC: PUEDEN CREAR Y GESTIONAR TICKETS (usuario = CAC.Nombre) <<< */
+const ADMIN_USERS = ["Administrador"];
+
 const CAC_USERS = [
     "Karolin",
     "Alexander",
@@ -1069,6 +1096,7 @@ function registerUsers(list, prefix, role, label) {
     });
 }
 
+registerUsers(ADMIN_USERS, "ADMIN", "admin", "Administrador · acceso total");
 registerUsers(CAC_USERS, "CAC", "manager",   "Gestor / creador de tickets (CAC)");
 registerUsers(TDM_USERS, "TDM", "requester", "Solicitante / vista de seguimiento (TDM)");
 
@@ -1089,8 +1117,9 @@ function displayUser(raw) {
 }
 
 /* ---------- Permisos ---------- */
-function isManager()   { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "manager"; }
-function isRequester() { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "requester"; }
+function isAdmin() { return !!currentUser && !!USERS[currentUser] && USERS[currentUser].role === "admin"; }
+function isManager() { return !!currentUser && !!USERS[currentUser] && (USERS[currentUser].role === "manager" || USERS[currentUser].role === "admin"); }
+function isRequester() { return !!currentUser && !!USERS[currentUser] && (USERS[currentUser].role === "requester" || USERS[currentUser].role === "admin"); }
 
 /* ---------- Permisos de EDICIÓN de solicitudes ----------
    - Solo el TDM que creó la solicitud puede editarla (el CAC nunca la edita).
@@ -1478,12 +1507,15 @@ function notifyChange() {
 
 function renderCurrent() {
     if (!currentUser || !USERS[currentUser]) return;
-    if (USERS[currentUser].role === "manager") {
+    const role = USERS[currentUser].role;
+    if (role === "admin") {
+        if (adminActiveView === "cac") renderKanban();
+        else if (adminActiveView === "tdm") renderRequesterView();
+        else renderAdminMetrics();
+    } else if (role === "manager") {
         renderKanban();
         if (!document.getElementById("history-modal").classList.contains("hidden")) renderHistoryView();
-    } else {
-        renderRequesterView();
-    }
+    } else renderRequesterView();
 }
 
 async function reloadAndRender() {
@@ -1804,34 +1836,57 @@ async function handleChangePassword(e) {
 
 function initDashboard() {
     const user = USERS[currentUser];
-
     document.getElementById("header-username").innerText = user.display;
     document.getElementById("user-role-badge").innerText = "Rol: " + user.label;
-
-    const requesterView = document.getElementById("requester-view");
-    const managerView = document.getElementById("manager-view");
-
-    requesterView.classList.add("hidden");
-    managerView.classList.add("hidden");
-
+    ["requester-view", "manager-view", "admin-view"].forEach(id => document.getElementById(id).classList.add("hidden"));
     if (user.role === "requester") {
-        requesterView.classList.remove("hidden");
+        document.getElementById("requester-view").classList.remove("hidden");
         renderRequesterView();
-    }
-
-    if (user.role === "manager") {
-        managerView.classList.remove("hidden");
-        if (!document.getElementById("manager-filter-date").value) {
-            document.getElementById("manager-filter-date").value = getTodayString();
-        }
+    } else if (user.role === "manager") {
+        document.getElementById("manager-view").classList.remove("hidden");
+        if (!document.getElementById("manager-filter-date").value) document.getElementById("manager-filter-date").value = getTodayString();
         renderKanban();
+    } else if (user.role === "admin") {
+        document.getElementById("admin-view").classList.remove("hidden");
+        adminNavigate("metrics");
     }
 }
 
+let adminActiveView = "metrics";
+function adminNavigate(view) {
+    if (!isAdmin()) return;
+    adminActiveView = view;
+    document.getElementById("admin-metrics-panel").classList.toggle("hidden", view !== "metrics");
+    document.getElementById("manager-view").classList.toggle("hidden", view !== "cac");
+    document.getElementById("requester-view").classList.toggle("hidden", view !== "tdm");
+    if (view === "metrics") renderAdminMetrics();
+    if (view === "cac") {
+        if (!document.getElementById("manager-filter-date").value) document.getElementById("manager-filter-date").value = getTodayString();
+        renderKanban();
+    }
+    if (view === "tdm") renderRequesterView();
+}
+function renderAdminMetrics() {
+    if (!isAdmin()) return;
+    const count = status => tickets.filter(t => t.status === status).length;
+    document.getElementById("admin-total").innerText = tickets.length;
+    document.getElementById("admin-process").innerText = count("proceso");
+    document.getElementById("admin-completed").innerText = count("completada");
+    document.getElementById("admin-canceled").innerText = count("cancelada");
+    const cacBody = document.getElementById("admin-cac-metrics");
+    const tdmBody = document.getElementById("admin-tdm-metrics");
+    cacBody.innerHTML = Object.values(USERS).filter(u => u.role === "manager").map(u => {
+        const taken = tickets.filter(t => resolveUserKey(t.assignedCAC || "") === u.key).length;
+        const completed = tickets.filter(t => resolveUserKey(t.completedBy || "") === u.key).length;
+        const canceled = tickets.filter(t => resolveUserKey(t.canceledBy || "") === u.key).length;
+        return `<tr class="border-b border-slate-100"><td class="py-3 pr-3 font-semibold">${escapeHtml(u.display)}</td><td class="py-3 px-2">${taken}</td><td class="py-3 px-2">${completed}</td><td class="py-3 px-2">${canceled}</td></tr>`;
+    }).join("") || `<tr><td colspan="4" class="py-4 text-slate-400">Sin usuarios CAC configurados.</td></tr>`;
+    tdmBody.innerHTML = Object.values(USERS).filter(u => u.role === "requester").map(u => {
+        const mine = tickets.filter(t => resolveUserKey(t.requester || "") === u.key);
+        return `<tr class="border-b border-slate-100"><td class="py-3 pr-3 font-semibold">${escapeHtml(u.display)}</td><td class="py-3 px-2">${mine.length}</td><td class="py-3 px-2">${mine.filter(t => t.status === "pendiente").length}</td><td class="py-3 px-2">${mine.filter(t => t.status === "completada").length}</td></tr>`;
+    }).join("") || `<tr><td colspan="4" class="py-4 text-slate-400">Sin usuarios TDM configurados.</td></tr>`;
+}
 
-/* =========================================================
-   VISTA SOLICITANTE
-========================================================= */
 function toggleFilterMine() {
     filterOnlyMine = !filterOnlyMine;
     const btn = document.getElementById("btn-filter-mine");
@@ -2253,10 +2308,18 @@ function drop(e, newStatus) {
 }
 
 async function moveTicket(id, newStatus) {
-    if (!currentUser || USERS[currentUser].role !== "manager") return;
-
+    if (!isManager()) return;
     const ticket = tickets.find(t => t.id === id);
     if (!ticket || ticket.status === newStatus) return;
+    const assignedToMe = resolveUserKey(ticket.assignedCAC || "") === currentUser;
+    if (!isAdmin() && (ticket.status === "completada" || ticket.status === "cancelada") && newStatus === "proceso") {
+        showCustomAlert("Las solicitudes completadas o canceladas no pueden reabrirse desde CAC. Contacta al administrador si necesitas corregir el estado.", "Acción no permitida", "error");
+        return;
+    }
+    if (!isAdmin() && newStatus !== "proceso" && !assignedToMe) {
+        showCustomAlert("Solo el CAC que tomó esta solicitud o el administrador puede cambiarla a completada, cancelada o pendiente.", "Acción no permitida", "error");
+        return;
+    }
 
     // =========================
     // COMPLETAR
@@ -2288,6 +2351,10 @@ async function moveTicket(id, newStatus) {
     ticket.status = newStatus;
     ticket.movedBy = currentUser;
     ticket.movedAt = movementAt;
+    if (newStatus === "proceso") {
+        ticket.assignedCAC = currentUser;
+        ticket.assignedCACAt = movementAt;
+    }
 
     // Historial
     if (!Array.isArray(ticket.movementHistory)) {
@@ -2318,7 +2385,7 @@ async function moveTicket(id, newStatus) {
         );
     }
 
-    renderKanban();
+    renderCurrent();
 }
 
 
@@ -2351,6 +2418,11 @@ async function confirmCancelRequest() {
         return;
     }
 
+    if (!isAdmin() && resolveUserKey(ticket.assignedCAC || "") !== currentUser) {
+        closeCancelModal();
+        showCustomAlert("Solo el CAC que tomó esta solicitud o el administrador puede cancelarla.", "Acción no permitida", "error");
+        return;
+    }
     const backup = JSON.parse(JSON.stringify(ticket));
     const previousStatus = ticket.status;
     const canceledAt = new Date().toISOString();
@@ -2964,6 +3036,8 @@ async function executeSaveRequest() {
             fechaRecepcion: value("f-fecha-recepcion"),
             reporta: reportaNombre,
             requester: currentUser,
+            assignedCAC: "",
+            assignedCACAt: "",
 
             modeloActual: value("f-modelo-actual").toUpperCase(),
             serialActual: value("f-serial-actual").toUpperCase(),
@@ -3048,6 +3122,11 @@ async function confirmComplete() {
         return;
     }
 
+    if (!isAdmin() && resolveUserKey(ticket.assignedCAC || "") !== currentUser) {
+        closeCompleteModal();
+        showCustomAlert("Solo el CAC que tomó esta solicitud o el administrador puede completarla.", "Acción no permitida", "error");
+        return;
+    }
     const backup = JSON.parse(JSON.stringify(ticket));
     const previousStatus = ticket.status;
     const completedAt = new Date().toISOString();
@@ -3082,7 +3161,7 @@ async function confirmComplete() {
 
     const id = ticket.id;
     closeCompleteModal();
-    renderKanban();
+    renderCurrent();
 
     showCustomAlert(`Solicitud #${id} marcada como completada.\nTicket/Orden: ${number}`, "Solicitud Finalizada", "success");
 }
