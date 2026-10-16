@@ -1223,6 +1223,8 @@ let editingTicketId = null;      // si tiene un número, el formulario está en 
 let editEvidenciasKeep = [];     // evidencias que se conservan al editar
 let filterOnlyMine = false;
 let tickets = [];
+// Evita que una recarga de Supabase sobrescriba el movimiento mientras se está guardando.
+const pendingTicketWrites = new Set();
 
 testSupabaseConnection();
 
@@ -1379,6 +1381,8 @@ async function persistTicket(ticket, isNew = false) {
 
         movedBy: ticket.movedBy || "",
         movedAt: ticket.movedAt || "",
+        assignedCAC: ticket.assignedCAC || "",
+        assignedCACAt: ticket.assignedCACAt || "",
 
         movementHistory: ticket.movementHistory || [],
 
@@ -1521,9 +1525,13 @@ function renderCurrent() {
 }
 
 async function reloadAndRender() {
-    if (draggedTicketId) return; // no refrescar en medio de un arrastre
+    // No refrescar durante un arrastre ni mientras haya cambios locales pendientes de guardar.
+    if (draggedTicketId || pendingTicketWrites.size > 0) return;
     try {
-        await reloadTickets();
+        const loadedTickets = await loadAllTickets();
+        // Una carga que empezó antes del movimiento no debe reemplazar el estado optimista.
+        if (draggedTicketId || pendingTicketWrites.size > 0) return;
+        tickets = loadedTickets;
         renderCurrent();
     } catch (err) {
         console.error("Error recargando:", err);
@@ -2345,6 +2353,10 @@ async function moveTicket(id, newStatus) {
         return;
     }
 
+    // Bloquea recargas concurrentes para que el estado anterior no reaparezca visualmente.
+    if (pendingTicketWrites.has(ticket.id)) return;
+    pendingTicketWrites.add(ticket.id);
+
     const backup = JSON.parse(JSON.stringify(ticket));
     const previousStatus = ticket.status;
     const movementAt = new Date().toISOString();
@@ -2388,6 +2400,9 @@ async function moveTicket(id, newStatus) {
             "Error al Guardar",
             "error"
         );
+    } finally {
+        pendingTicketWrites.delete(ticket.id);
+        renderCurrent();
     }
 
 }
