@@ -1083,7 +1083,7 @@ function registerUsers(list, prefix, role, label) {
     list.forEach(rawName => {
         // Si alguien escribe "CAC.Karolin" en la lista, se le quita el prefijo repetido
         const name = (rawName || "").toString().trim()
-            .replace(new RegExp("^" + prefix + "\\s*\\.\\s*", "i"), "").trim();
+            .replace(new RegExp("^" + prefix + "\\\s*\\\.\\\s*", "i"), "").trim();
         if (!name) return;
 
         const display = prefix + "." + name;      // como se ve en pantalla
@@ -1110,6 +1110,8 @@ function resolveUserKey(raw) {
     const k = normalizeUser(raw);
     return USERS[k] ? k : (LEGACY_USER_MAP[k] || k);
 }
+
+function sameUser(a, b) { return !!a && !!b && resolveUserKey(a) === resolveUserKey(b); }
 
 function displayUser(raw) {
     const u = USERS[resolveUserKey(raw)];
@@ -2292,7 +2294,7 @@ function drag(e, id) {
         e.dataTransfer.setData("text/plain", String(id));
     } catch {}
     const el = e.currentTarget;
-    if (el) setTimeout(() => el.classList.add("dragging"), 0);
+    if (el) el.classList.add("dragging");
 }
 
 function drop(e, newStatus) {
@@ -2311,7 +2313,7 @@ async function moveTicket(id, newStatus) {
     if (!isManager()) return;
     const ticket = tickets.find(t => t.id === id);
     if (!ticket || ticket.status === newStatus) return;
-    const assignedToMe = resolveUserKey(ticket.assignedCAC || "") === currentUser;
+    const assignedToMe = sameUser(ticket.assignedCAC, currentUser) || sameUser(ticket.movedBy, currentUser);
     if (!isAdmin() && (ticket.status === "completada" || ticket.status === "cancelada") && newStatus === "proceso") {
         showCustomAlert("Las solicitudes completadas o canceladas no pueden reabrirse desde CAC. Contacta al administrador si necesitas corregir el estado.", "Acción no permitida", "error");
         return;
@@ -2368,8 +2370,11 @@ async function moveTicket(id, newStatus) {
         movedAt: movementAt
     });
 
+    // Actualización optimista: la tarjeta cambia inmediatamente, sin esperar la red.
+    renderCurrent();
+
     try {
-        // Guarda en local (IndexedDB) y en Supabase con la misma función de siempre
+        // Persiste después de actualizar la interfaz para que el arrastre se sienta inmediato.
         await persistTicket(ticket);
         notifyChange();
     } catch (err) {
@@ -2385,7 +2390,6 @@ async function moveTicket(id, newStatus) {
         );
     }
 
-    renderCurrent();
 }
 
 
@@ -2418,7 +2422,7 @@ async function confirmCancelRequest() {
         return;
     }
 
-    if (!isAdmin() && resolveUserKey(ticket.assignedCAC || "") !== currentUser) {
+    if (!isAdmin() && !sameUser(ticket.assignedCAC, currentUser) && !sameUser(ticket.movedBy, currentUser)) {
         closeCancelModal();
         showCustomAlert("Solo el CAC que tomó esta solicitud o el administrador puede cancelarla.", "Acción no permitida", "error");
         return;
@@ -3122,7 +3126,7 @@ async function confirmComplete() {
         return;
     }
 
-    if (!isAdmin() && resolveUserKey(ticket.assignedCAC || "") !== currentUser) {
+    if (!isAdmin() && !sameUser(ticket.assignedCAC, currentUser) && !sameUser(ticket.movedBy, currentUser)) {
         closeCompleteModal();
         showCustomAlert("Solo el CAC que tomó esta solicitud o el administrador puede completarla.", "Acción no permitida", "error");
         return;
@@ -3475,7 +3479,7 @@ function downloadEvidenceObj(ev, fallbackName) {
     try {
         const pdf = isPdfEv(ev);
         const blob = dataUrlToBlob(ev.data, pdf ? "application/pdf" : null);
-        let name = (ev.name || fallbackName || "evidencia").replace(/[\\/:*?"<>|]+/g, "_");
+        let name = (ev.name || fallbackName || "evidencia").replace(/[\\\/:*?"<>|]+/g, "_");
         if (pdf && !/\.pdf$/i.test(name)) name = name.replace(/\.[^.]+$/, "") + ".pdf";
         if (!pdf && !/\.[a-z0-9]{2,5}$/i.test(name)) name += ".jpg";
 
